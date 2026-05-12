@@ -1,11 +1,12 @@
 import { describe, expect, test } from 'bun:test';
+import { DEFAULT_MAX_SUBAGENT_DEPTH } from '../config';
 import { SubagentDepthTracker } from './subagent-depth';
 
 describe('SubagentDepthTracker', () => {
   describe('constructor', () => {
-    test('uses DEFAULT_MAX_SUBAGENT_DEPTH (3) by default', () => {
+    test('uses DEFAULT_MAX_SUBAGENT_DEPTH (1) by default', () => {
       const tracker = new SubagentDepthTracker();
-      expect(tracker).toBeDefined();
+      expect(tracker.maxDepth).toBe(DEFAULT_MAX_SUBAGENT_DEPTH);
     });
 
     test('accepts custom max depth', () => {
@@ -30,7 +31,7 @@ describe('SubagentDepthTracker', () => {
 
   describe('registerChild', () => {
     test('tracks depth correctly (parent=0, child=1, grandchild=2)', () => {
-      const tracker = new SubagentDepthTracker();
+      const tracker = new SubagentDepthTracker(3);
 
       expect(tracker.getDepth('root')).toBe(0);
 
@@ -59,7 +60,7 @@ describe('SubagentDepthTracker', () => {
     });
 
     test('tracks across multiple branches independently', () => {
-      const tracker = new SubagentDepthTracker();
+      const tracker = new SubagentDepthTracker(3);
 
       const root = 'root';
       const branch1Child = 'branch1-child';
@@ -93,7 +94,7 @@ describe('SubagentDepthTracker', () => {
     });
 
     test('updates depth if child is re-registered from different parent', () => {
-      const tracker = new SubagentDepthTracker();
+      const tracker = new SubagentDepthTracker(3);
 
       const root = 'root';
       const child1 = 'child1';
@@ -139,7 +140,7 @@ describe('SubagentDepthTracker', () => {
 
   describe('cleanupAll', () => {
     test('removes all sessions', () => {
-      const tracker = new SubagentDepthTracker();
+      const tracker = new SubagentDepthTracker(3);
 
       const root = 'root';
       const child1 = 'child1';

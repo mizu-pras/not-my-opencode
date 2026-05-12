@@ -72,11 +72,11 @@ export const DEFAULT_MODELS: Record<AgentName, string | undefined> = {
   oracle: 'openai/gpt-5.5',
   librarian: 'openai/gpt-5.4-mini',
   explorer: 'openai/gpt-5.4-mini',
-  designer: 'openai/gpt-5.4-mini',
-  fixer: 'openai/gpt-5.4-mini',
+  designer: 'openai/gpt-5.4',
+  fixer: 'openai/gpt-5.4',
   observer: 'openai/gpt-5.4-mini',
-  council: 'openai/gpt-5.4-mini',
-  councillor: 'openai/gpt-5.4-mini',
+  council: 'openai/gpt-5.5',
+  councillor: 'openai/gpt-5.4',
 };
 
 // Polling configuration
@@ -90,7 +90,7 @@ export const MAX_POLL_TIME_MS = 5 * 60 * 1000; // 5 minutes
 export const FALLBACK_FAILOVER_TIMEOUT_MS = 15_000;
 
 // Subagent depth limits
-export const DEFAULT_MAX_SUBAGENT_DEPTH = 3;
+export const DEFAULT_MAX_SUBAGENT_DEPTH = 1;
 
 // Workflow reminders
 export const PHASE_REMINDER_TEXT = `!IMPORTANT! Recall the workflow rules:

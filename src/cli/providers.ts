@@ -11,12 +11,15 @@ export const GENERATED_PRESETS = ['openai', 'opencode-go'] as const;
 // Model mappings by provider/preset.
 export const MODEL_MAPPINGS = {
   openai: {
-    orchestrator: { model: 'openai/gpt-5.5' },
+    orchestrator: { model: 'openai/gpt-5.5', variant: 'high' },
     oracle: { model: 'openai/gpt-5.5', variant: 'high' },
+    council: { model: 'openai/gpt-5.5', variant: 'high' },
+    councillor: { model: 'openai/gpt-5.4', variant: 'medium' },
     librarian: { model: 'openai/gpt-5.4-mini', variant: 'low' },
     explorer: { model: 'openai/gpt-5.4-mini', variant: 'low' },
-    designer: { model: 'openai/gpt-5.4-mini', variant: 'medium' },
-    fixer: { model: 'openai/gpt-5.4-mini', variant: 'low' },
+    designer: { model: 'openai/gpt-5.4', variant: 'medium' },
+    fixer: { model: 'openai/gpt-5.4', variant: 'medium' },
+    observer: { model: 'openai/gpt-5.4-mini', variant: 'low' },
   },
   kimi: {
     orchestrator: { model: 'kimi-for-coding/k2p5' },

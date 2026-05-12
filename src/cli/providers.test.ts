@@ -35,9 +35,23 @@ describe('providers', () => {
     const agents = (config.presets as any).openai;
     expect(agents).toBeDefined();
     expect(agents.orchestrator.model).toBe('openai/gpt-5.5');
-    expect(agents.orchestrator.variant).toBeUndefined();
-    expect(agents.fixer.model).toBe('openai/gpt-5.4-mini');
-    expect(agents.fixer.variant).toBe('low');
+    expect(agents.orchestrator.variant).toBe('high');
+    expect(agents.oracle.model).toBe('openai/gpt-5.5');
+    expect(agents.oracle.variant).toBe('high');
+    expect(agents.council.model).toBe('openai/gpt-5.5');
+    expect(agents.council.variant).toBe('high');
+    expect(agents.councillor.model).toBe('openai/gpt-5.4');
+    expect(agents.councillor.variant).toBe('medium');
+    expect(agents.librarian.model).toBe('openai/gpt-5.4-mini');
+    expect(agents.librarian.variant).toBe('low');
+    expect(agents.explorer.model).toBe('openai/gpt-5.4-mini');
+    expect(agents.explorer.variant).toBe('low');
+    expect(agents.designer.model).toBe('openai/gpt-5.4');
+    expect(agents.designer.variant).toBe('medium');
+    expect(agents.fixer.model).toBe('openai/gpt-5.4');
+    expect(agents.fixer.variant).toBe('medium');
+    expect(agents.observer.model).toBe('openai/gpt-5.4-mini');
+    expect(agents.observer.variant).toBe('low');
   });
 
   test('generateLiteConfig uses correct OpenAI models', () => {
@@ -52,14 +66,23 @@ describe('providers', () => {
     expect(agents.orchestrator.model).toBe(
       MODEL_MAPPINGS.openai.orchestrator.model,
     );
+    expect(agents.orchestrator.variant).toBe('high');
     expect(agents.oracle.model).toBe('openai/gpt-5.5');
     expect(agents.oracle.variant).toBe('high');
+    expect(agents.council.model).toBe('openai/gpt-5.5');
+    expect(agents.council.variant).toBe('high');
+    expect(agents.councillor.model).toBe('openai/gpt-5.4');
+    expect(agents.councillor.variant).toBe('medium');
     expect(agents.librarian.model).toBe('openai/gpt-5.4-mini');
     expect(agents.librarian.variant).toBe('low');
     expect(agents.explorer.model).toBe('openai/gpt-5.4-mini');
     expect(agents.explorer.variant).toBe('low');
-    expect(agents.designer.model).toBe('openai/gpt-5.4-mini');
+    expect(agents.designer.model).toBe('openai/gpt-5.4');
     expect(agents.designer.variant).toBe('medium');
+    expect(agents.fixer.model).toBe('openai/gpt-5.4');
+    expect(agents.fixer.variant).toBe('medium');
+    expect(agents.observer.model).toBe('openai/gpt-5.4-mini');
+    expect(agents.observer.variant).toBe('low');
   });
 
   test('generateLiteConfig can set opencode-go as active preset', () => {
