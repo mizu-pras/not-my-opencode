@@ -158,7 +158,7 @@ export type Preset = z.infer<typeof PresetSchema>;
 
 // Websearch provider configuration
 export const WebsearchConfigSchema = z.object({
-  provider: z.enum(['exa', 'tavily']).default('exa'),
+  provider: z.enum(['exa', 'tavily', 'brave']).default('exa'),
 });
 export type WebsearchConfig = z.infer<typeof WebsearchConfigSchema>;
 

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { createBuiltinMcps } from './index';
+import { createWebsearchConfig } from './websearch';
 
 describe('createBuiltinMcps', () => {
   test('returns all MCPs when no disabled list provided', () => {
@@ -76,6 +77,47 @@ describe('createBuiltinMcps', () => {
 
     expect(websearch).toBeDefined();
     expect('url' in websearch).toBe(true);
+  });
+
+  test('brave websearch provider uses official local MCP server', () => {
+    const previous = process.env.BRAVE_API_KEY;
+    process.env.BRAVE_API_KEY = 'test-key';
+
+    try {
+      const websearch = createWebsearchConfig({ provider: 'brave' });
+
+      expect(websearch.type).toBe('local');
+      expect('command' in websearch).toBe(true);
+      if ('command' in websearch) {
+        expect(websearch.command).toEqual([
+          'npx',
+          '-y',
+          '@brave/brave-search-mcp-server',
+          '--transport',
+          'stdio',
+        ]);
+        expect(websearch.environment?.BRAVE_API_KEY).toBe('test-key');
+      }
+    } finally {
+      if (previous === undefined) {
+        delete process.env.BRAVE_API_KEY;
+      } else {
+        process.env.BRAVE_API_KEY = previous;
+      }
+    }
+  });
+
+  test('brave websearch provider requires an API key', () => {
+    const previous = process.env.BRAVE_API_KEY;
+    delete process.env.BRAVE_API_KEY;
+
+    try {
+      expect(() => createWebsearchConfig({ provider: 'brave' })).toThrow(
+        'BRAVE_API_KEY',
+      );
+    } finally {
+      if (previous !== undefined) process.env.BRAVE_API_KEY = previous;
+    }
   });
 
   test('context7 MCP has correct structure', () => {

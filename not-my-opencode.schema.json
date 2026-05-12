@@ -450,7 +450,8 @@
           "type": "string",
           "enum": [
             "exa",
-            "tavily"
+            "tavily",
+            "brave"
           ]
         }
       }

@@ -16,6 +16,11 @@ Fetch remote pages with content extraction tuned for docs/static sites.
 |------|-------------|
 | `webfetch` | Fetch a URL, optionally prefer `llms.txt`, extract main content from HTML, include metadata, and optionally save binary responses |
 
+For HTML pages, `webfetch` uses Defuddle as the primary main-content
+extractor, then falls back to Mozilla Readability and finally the raw body when
+needed. This keeps docs, articles, and blog posts cleaner by removing navigation,
+sidebars, footers, and other boilerplate before converting to markdown.
+
 `webfetch` blocks cross-origin redirects unless the requested URL or derived permission patterns explicitly allow them, and it can fall back to the raw fetched content when secondary-model summarization is unavailable.
 
 ---

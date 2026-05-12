@@ -1,4 +1,5 @@
 import { Readability } from '@mozilla/readability';
+import { Defuddle } from 'defuddle/node';
 import TurndownService from 'turndown';
 import type { CachedFetch, ExtractedContent } from './types';
 
@@ -283,6 +284,46 @@ turndown.addRule('fenced-pre-code', {
   },
 });
 
+async function extractWithDefuddle(
+  html: string,
+  finalUrl: string,
+  title?: string,
+  canonicalUrl?: string,
+  headings?: string[],
+): Promise<ExtractedContent | undefined> {
+  try {
+    const result = await Defuddle(html, finalUrl, {
+      separateMarkdown: true,
+      useAsync: false,
+    });
+    const contentHtml = trimBlankRuns(result.content || '');
+    const contentMarkdown = trimBlankRuns(
+      result.contentMarkdown || turndown.turndown(contentHtml),
+    );
+
+    if (!contentHtml && !contentMarkdown) return undefined;
+
+    const JSDOM = await getJSDOM();
+    const extractedDom = new JSDOM(contentHtml || contentMarkdown, {
+      url: finalUrl,
+    });
+    const text = extractStructuredText(extractedDom.window.document.body);
+
+    return {
+      title: result.title || title,
+      rawContent: html,
+      html: contentHtml || escapeHtml(contentMarkdown),
+      text: text || contentMarkdown,
+      markdown: contentMarkdown,
+      extractedMain: true,
+      canonicalUrl,
+      headings,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 export async function extractFromHtml(
   html: string,
   finalUrl: string,
@@ -311,6 +352,15 @@ export async function extractFromHtml(
     .slice(0, 12);
 
   if (extractMain) {
+    const defuddleResult = await extractWithDefuddle(
+      html,
+      finalUrl,
+      title,
+      canonicalUrl,
+      headings,
+    );
+    if (defuddleResult) return defuddleResult;
+
     const readerDom = new JSDOM(html, { url: finalUrl });
     const article = new Readability(readerDom.window.document).parse();
     if (article?.content?.trim()) {

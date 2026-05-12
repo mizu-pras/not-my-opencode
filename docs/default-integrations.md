@@ -43,7 +43,7 @@ unless disabled with `disabled_mcps`.
 
 | MCP | Purpose | Endpoint / provider |
 |---|---|---|
-| `websearch` | Web search | Exa by default: `https://mcp.exa.ai/mcp?tools=web_search_exa`. Uses `EXA_API_KEY` if set. Can be configured for Tavily with `TAVILY_API_KEY`. |
+| `websearch` | Web search | Exa by default. Can be configured for Tavily with `TAVILY_API_KEY` or Brave's official MCP server with `BRAVE_API_KEY`. |
 | `context7` | Official library documentation | `https://mcp.context7.com/mcp`. Uses `CONTEXT7_API_KEY` if set. |
 | `grep_app` | GitHub code search | `https://mcp.grep.app`. |
 

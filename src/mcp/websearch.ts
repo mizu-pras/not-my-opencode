@@ -1,15 +1,38 @@
 import type { WebsearchConfig } from '../config';
-import type { RemoteMcpConfig } from './types';
+import type { LocalMcpConfig, McpConfig, RemoteMcpConfig } from './types';
 
 /**
  * Creates a websearch MCP config based on the provided configuration.
- * Supports Exa (default) and Tavily providers.
- * @see https://exa.ai  @see https://tavily.com
+ * Supports Exa (default), Tavily, and Brave providers.
+ * @see https://exa.ai  @see https://tavily.com  @see https://search.brave.com
  */
 export function createWebsearchConfig(
   config?: WebsearchConfig,
-): RemoteMcpConfig {
+): RemoteMcpConfig | LocalMcpConfig {
   const provider = config?.provider || 'exa';
+
+  if (provider === 'brave') {
+    const braveKey = process.env.BRAVE_API_KEY;
+    if (!braveKey) {
+      throw new Error(
+        'BRAVE_API_KEY environment variable is required for Brave provider',
+      );
+    }
+
+    return {
+      type: 'local',
+      command: [
+        'npx',
+        '-y',
+        '@brave/brave-search-mcp-server',
+        '--transport',
+        'stdio',
+      ],
+      environment: {
+        BRAVE_API_KEY: braveKey,
+      },
+    };
+  }
 
   if (provider === 'tavily') {
     const tavilyKey = process.env.TAVILY_API_KEY;
@@ -44,4 +67,4 @@ export function createWebsearchConfig(
 }
 
 // Backward compatibility: default export using default (Exa) config
-export const websearch: RemoteMcpConfig = createWebsearchConfig();
+export const websearch: McpConfig = createWebsearchConfig();
