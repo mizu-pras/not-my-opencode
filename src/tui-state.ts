@@ -8,7 +8,7 @@ export interface TuiSnapshot {
   agentModels: Record<string, string>;
 }
 
-const STATE_DIR = 'oh-my-opencode-slim';
+const STATE_DIR = 'not-my-opencode';
 const STATE_FILE = 'tui-state.json';
 
 function dataDir(): string {

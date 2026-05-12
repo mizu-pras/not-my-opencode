@@ -85,7 +85,7 @@ describe('readConfigInvalid', () => {
       const configDir = path.join(projectDir, '.opencode');
       fs.mkdirSync(configDir, { recursive: true });
       fs.writeFileSync(
-        path.join(configDir, 'oh-my-opencode-slim.json'),
+        path.join(configDir, 'not-my-opencode.json'),
         JSON.stringify({ agents: { oracle: { temperature: 5 } } }),
       );
 
@@ -102,7 +102,7 @@ describe('readConfigInvalid', () => {
       const configDir = path.join(projectDir, '.opencode');
       fs.mkdirSync(configDir, { recursive: true });
       fs.writeFileSync(
-        path.join(configDir, 'oh-my-opencode-slim.json'),
+        path.join(configDir, 'not-my-opencode.json'),
         JSON.stringify({ agents: { oracle: { model: 'valid/model' } } }),
       );
 

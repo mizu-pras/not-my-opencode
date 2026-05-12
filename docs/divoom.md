@@ -1,6 +1,6 @@
 # Divoom MiniToo Display Integration
 
-oh-my-opencode-slim can mirror agent activity to a Divoom MiniToo Bluetooth
+not-my-opencode can mirror agent activity to a Divoom MiniToo Bluetooth
 display. The integration is optional and disabled by default.
 
 ## Demo
@@ -78,7 +78,7 @@ Before blaming OpenCode, verify the Divoom sender works directly:
   --speed 125 \
   --max-frames 24 \
   --posterize-bits 3 \
-  --out-dir ~/.local/share/opencode/storage/oh-my-opencode-slim/divoom/captures
+  --out-dir ~/.local/share/opencode/storage/not-my-opencode/divoom/captures
 ```
 
 **Note:** The sender must support the `--out-dir` flag. This requires a recent
@@ -88,16 +88,16 @@ processing files).
 If that updates the display, the OpenCode integration should work once enabled.
 
 **Output directory path:** The plugin writes temporary processing files to
-`$XDG_DATA_HOME/opencode/storage/oh-my-opencode-slim/divoom/captures` when
+`$XDG_DATA_HOME/opencode/storage/not-my-opencode/divoom/captures` when
 `XDG_DATA_HOME` is set to a non-empty absolute path. Otherwise it falls back to
-`~/.local/share/opencode/storage/oh-my-opencode-slim/divoom/captures`.
+`~/.local/share/opencode/storage/not-my-opencode/divoom/captures`.
 
-## Enable in oh-my-opencode-slim
+## Enable in not-my-opencode
 
 Open your plugin config:
 
 ```text
-~/.config/opencode/oh-my-opencode-slim.json
+~/.config/opencode/not-my-opencode.json
 ```
 
 Add:

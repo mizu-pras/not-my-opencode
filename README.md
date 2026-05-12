@@ -15,7 +15,7 @@
 
 ## What's This Plugin
 
-oh-my-opencode-slim is an agent orchestration plugin for OpenCode. It includes a built-in team of specialized agents that can scout a codebase, look up fresh documentation, review architecture, handle UI work, and execute well-scoped implementation tasks under one orchestrator.
+not-my-opencode is an agent orchestration plugin for OpenCode. It includes a built-in team of specialized agents that can scout a codebase, look up fresh documentation, review architecture, handle UI work, and execute well-scoped implementation tasks under one orchestrator.
 
 The main idea is simple: instead of forcing one model to do everything, the plugin routes each part of the job to the agent best suited for it, balancing **quality, speed and cost**.
 
@@ -27,26 +27,26 @@ Copy and paste this prompt to your LLM agent (Claude Code, AmpCode, Cursor, etc.
 
 
 ```
-Install and configure oh-my-opencode-slim: https://raw.githubusercontent.com/alvinunreal/oh-my-opencode-slim/refs/heads/master/README.md
+Install and configure not-my-opencode: https://raw.githubusercontent.com/mizu-pras/not-my-opencode/refs/heads/master/README.md
 ```
 
 
 ### Manual Installation
 
 ```bash
-bunx oh-my-opencode-slim@latest install
+bunx not-my-opencode@latest install
 ```
 
 The installer also registers the companion TUI plugin in OpenCode's
 `tui.json`, which adds a small sidebar showing specialist-agent status plus
 active/reusable task sessions. It also warms OpenCode's plugin cache so bunx
 installs keep loading even after temporary directories are cleaned up. For
-manual setups, add `oh-my-opencode-slim` to the `plugin` array in both
+manual setups, add `not-my-opencode` to the `plugin` array in both
 `opencode.json` and `tui.json`.
 
 ### Getting Started
 
-The installer generates both OpenAI and OpenCode Go presets, with OpenAI active by default. OpenAI uses `openai/gpt-5.5` for the higher-judgment agents and `openai/gpt-5.4-mini` for the faster scoped agents. To make OpenCode Go active during install, run `bunx oh-my-opencode-slim@latest install --preset=opencode-go` or change the default preset name in `~/.config/opencode/oh-my-opencode-slim.json` after installation.
+The installer generates both OpenAI and OpenCode Go presets, with OpenAI active by default. OpenAI uses `openai/gpt-5.5` for the higher-judgment agents and `openai/gpt-5.4-mini` for the faster scoped agents. To make OpenCode Go active during install, run `bunx not-my-opencode@latest install --preset=opencode-go` or change the default preset name in `~/.config/opencode/not-my-opencode.json` after installation.
 
 Then:
 
@@ -60,18 +60,18 @@ Then:
    ```bash
    opencode models --refresh
    ```
-3. **Open your plugin config** at `~/.config/opencode/oh-my-opencode-slim.json`
+3. **Open your plugin config** at `~/.config/opencode/not-my-opencode.json`
 
 4. **Update the models you want for each agent**
 
 > [!TIP]
-> It's **recommended** to understand how automatic delegation works. The **[Orchestrator prompt](https://github.com/alvinunreal/oh-my-opencode-slim/blob/master/src/agents/orchestrator.ts#L28)** contains the delegation rules, specialist routing logic, and the thresholds for when the main agent should hand work off to subagents. You can alway delegate manually by calling a subagent via: `@agentName <task>`
+> It's **recommended** to understand how automatic delegation works. The **[Orchestrator prompt](https://github.com/mizu-pras/not-my-opencode/blob/master/src/agents/orchestrator.ts#L28)** contains the delegation rules, specialist routing logic, and the thresholds for when the main agent should hand work off to subagents. You can alway delegate manually by calling a subagent via: `@agentName <task>`
 
 The default generated configuration includes both `openai` and `opencode-go` presets.
 
 ```jsonc
 {
-  "$schema": "https://unpkg.com/oh-my-opencode-slim@latest/oh-my-opencode-slim.schema.json",
+  "$schema": "https://unpkg.com/not-my-opencode@latest/not-my-opencode.schema.json",
   "preset": "openai",
   "presets": {
     "openai": {

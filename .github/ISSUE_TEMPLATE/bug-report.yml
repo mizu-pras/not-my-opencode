@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible bug in oh-my-opencode-slim.
+description: Report a reproducible bug in not-my-opencode.
 title: '[Bug]: '
 labels:
   - bug
@@ -32,8 +32,8 @@ body:
   - type: textarea
     id: config
     attributes:
-      label: oh-my-opencode.json
-      description: Paste your oh-my-opencode.json config.
+      label: not-my-opencode.json
+      description: Paste your not-my-opencode.json config.
       render: jsonc
     validations:
       required: false
@@ -47,7 +47,7 @@ body:
   - type: input
     id: plugin-version
     attributes:
-      label: oh-my-opencode-slim version
+      label: not-my-opencode version
       placeholder: 0.0.0
     validations:
       required: false
