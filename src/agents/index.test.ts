@@ -303,6 +303,42 @@ describe('tool permissions', () => {
     const councillor = agents.find((a) => a.name === 'councillor');
     expect((councillor?.config.permission as any).council_session).toBe('deny');
   });
+
+  test('explorer defaults to read-only tool permissions', () => {
+    const agents = createAgents();
+    const explorer = agents.find((a) => a.name === 'explorer');
+    const permission = explorer?.config.permission as Record<string, string>;
+
+    expect(permission['*']).toBe('deny');
+    expect(permission.read).toBe('allow');
+    expect(permission.glob).toBe('allow');
+    expect(permission.grep).toBe('allow');
+    expect(permission.ast_grep_search).toBe('allow');
+    expect(permission.question).toBe('allow');
+  });
+
+  test('librarian denies edits and delegation by default', () => {
+    const agents = createAgents();
+    const librarian = agents.find((a) => a.name === 'librarian');
+    const permission = librarian?.config.permission as Record<string, string>;
+
+    expect(permission.edit).toBe('deny');
+    expect(permission.write).toBe('deny');
+    expect(permission.bash).toBe('deny');
+    expect(permission.task).toBe('deny');
+    expect(permission.todowrite).toBe('deny');
+  });
+
+  test('fixer and designer deny nested delegation by default', () => {
+    const agents = createAgents();
+
+    for (const name of ['fixer', 'designer']) {
+      const agent = agents.find((a) => a.name === name);
+      const permission = agent?.config.permission as Record<string, string>;
+      expect(permission.task).toBe('deny');
+      expect(permission.todowrite).toBe('deny');
+    }
+  });
 });
 
 describe('isSubagent type guard', () => {

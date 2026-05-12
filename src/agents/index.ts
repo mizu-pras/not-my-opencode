@@ -39,6 +39,45 @@ type AgentFactory = (
 const COUNCIL_TOOL_ALLOWED_AGENTS = new Set(['council']);
 const SAFE_AGENT_ALIAS_RE = /^[a-z][a-z0-9_-]*$/i;
 
+const READ_ONLY_TOOL_PERMISSIONS = {
+  '*': 'deny',
+  read: 'allow',
+  glob: 'allow',
+  grep: 'allow',
+  lsp: 'allow',
+  list: 'allow',
+  codesearch: 'allow',
+  ast_grep_search: 'allow',
+} as const;
+
+const NO_DELEGATION_PERMISSIONS = {
+  task: 'deny',
+  todowrite: 'deny',
+} as const;
+
+function getDefaultToolPermissions(
+  agentName: string,
+): Record<string, 'ask' | 'allow' | 'deny'> {
+  switch (agentName) {
+    case 'explorer':
+    case 'oracle':
+    case 'observer':
+      return { ...READ_ONLY_TOOL_PERMISSIONS };
+    case 'librarian':
+      return {
+        ...NO_DELEGATION_PERMISSIONS,
+        edit: 'deny',
+        write: 'deny',
+        bash: 'deny',
+      };
+    case 'fixer':
+    case 'designer':
+      return { ...NO_DELEGATION_PERMISSIONS };
+    default:
+      return {};
+  }
+}
+
 function normalizeDisplayName(displayName: string): string {
   const trimmed = displayName.trim();
   return trimmed.startsWith('@') ? trimmed.slice(1) : trimmed;
@@ -179,8 +218,10 @@ function applyDefaultPermissions(
   const councilSessionPerm = COUNCIL_TOOL_ALLOWED_AGENTS.has(agent.name)
     ? (existing.council_session ?? 'allow')
     : 'deny';
+  const defaultToolPermissions = getDefaultToolPermissions(agent.name);
 
   agent.config.permission = {
+    ...defaultToolPermissions,
     ...existing,
     question: questionPerm,
     council_session: councilSessionPerm,
