@@ -1,6 +1,8 @@
-# Author's Preset
+# Example Mixed-Provider Preset
 
-This is the exact configuration the author runs day-to-day.
+This is a copyable mixed-provider configuration inherited from upstream. Treat
+it as a starting point: keep the structure, then swap in the providers and
+models available in your OpenCode install.
 
 ---
 

@@ -4,7 +4,7 @@ Built-in tools available to agents beyond the standard file and shell operations
 
 ## apply_patch rescue
 
-Slim only intercepts `apply_patch` before the native tool runs. It rewrites recoverable stale patches, canonizes safe tolerant matches against the real file when unicode/trim drift is the only mismatch, keeps the authored `new_lines` bytes intact, preserves the existing file EOL/final-newline state for updates, validates malformed patches strictly before helper execution, uses a conservative bounded LCS fallback, accumulates helper state when the same path appears in multiple `Update File` hunks, blocks `apply_patch` before native execution if any patch path falls outside the allowed root/worktree, and fails on ambiguity instead of guessing. It does not rewrite `edit` or `write` inputs.
+not-my-opencode only intercepts `apply_patch` before the native tool runs. It rewrites recoverable stale patches, canonizes safe tolerant matches against the real file when unicode/trim drift is the only mismatch, keeps the authored `new_lines` bytes intact, preserves the existing file EOL/final-newline state for updates, validates malformed patches strictly before helper execution, uses a conservative bounded LCS fallback, accumulates helper state when the same path appears in multiple `Update File` hunks, blocks `apply_patch` before native execution if any patch path falls outside the allowed root/worktree, and fails on ambiguity instead of guessing. It does not rewrite `edit` or `write` inputs.
 
 ---
 
@@ -50,7 +50,7 @@ the caller.
 | `subtask` | Creates a child orchestrator session and returns its structured summary |
 | `read_session` | Lets a subtask worker inspect the source session when needed context is missing |
 
-Slim creates a real child session with the current session as `parentID`, injects
+not-my-opencode creates a real child session with the current session as `parentID`, injects
 relevant file context, and asks the worker to complete only the requested task.
 The worker returns a `<subtask_summary>` with status, changes, files touched,
 validation, and follow-up notes. In tmux/zellij this appears like other child

@@ -2,7 +2,9 @@
 
 Skills are specialized capabilities you can assign to agents. Unlike MCPs (which are running servers), skills are **prompt-based tool configurations** — instructions injected into an agent's system prompt that describe how to use a particular tool.
 
-Skills are installed via the `not-my-opencode` installer or manually with `npx skills add`.
+Skills are installed and permissioned by the `not-my-opencode` installer when
+you keep the default `--skills=yes` option. Bundled skills are copied from this
+repository; recommended external skills are installed by the CLI when selected.
 
 ---
 
@@ -41,6 +43,9 @@ Source: adapted from Addy Osmani's `code-simplification` skill and bundled local
 **External browser automation for visual verification and testing.**
 
 `agent-browser` provides full high-performance browser automation. It allows agents to browse the web, interact with page elements, take screenshots, and verify visual state — useful for UI/UX work, end-to-end testing, and researching live documentation.
+
+The installer adds it from `https://github.com/vercel-labs/agent-browser`, then
+runs `npm install -g agent-browser` and `agent-browser install`.
 
 ---
 

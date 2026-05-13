@@ -32,7 +32,7 @@ Keep the request narrow. A good subtask has a clear finish line.
    worker prompt.
 2. The agent calls the `subtask` tool with that prompt and any clearly relevant
    files.
-3. Slim creates a real child session with `parentID` pointing at the current
+3. not-my-opencode creates a real child session with `parentID` pointing at the current
    session.
 4. The child session runs as `orchestrator`, so it can use normal tools and
    specialist delegation when useful.
@@ -42,7 +42,7 @@ Keep the request narrow. A good subtask has a clear finish line.
    to inspect only the source session that spawned it.
 7. When finished, the worker returns a `<subtask_summary>` with status, changes,
    files touched, validation, and follow-up notes.
-8. Slim extracts the summary, returns it to the original session, and aborts the
+8. not-my-opencode extracts the summary, returns it to the original session, and aborts the
    child session for cleanup.
 
 In tmux or zellij, the subtask appears like other child-agent work because it is
@@ -75,7 +75,7 @@ source session. It is not a general transcript-reading tool.
 ## File context
 
 Files can be passed explicitly with the `files` argument or referenced in the
-worker prompt with `@path` syntax. Slim resolves those paths inside the current
+worker prompt with `@path` syntax. not-my-opencode resolves those paths inside the current
 workspace and injects readable text files as synthetic context.
 
 Safety rules:

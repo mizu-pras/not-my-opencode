@@ -20,6 +20,7 @@ The installer defaults to `--skills=yes`, so these skills are processed during
 |---|---|---|---|
 | `simplify` | `src/skills/simplify` | `oracle` | Behavior-preserving simplification and readability review. |
 | `codemap` | `src/skills/codemap` | `orchestrator` | Hierarchical repository mapping. |
+| `clonedeps` | `src/skills/clonedeps` | `orchestrator` | Local dependency-source mirroring for inspecting pinned upstream code. |
 
 ### Permission-only skills
 
@@ -67,8 +68,9 @@ The installer adds `not-my-opencode` to the OpenCode `plugin` array. If the
 installer is run from a local checkout, the entry may be the local package root
 instead of the package name.
 
-When TUI integration is enabled (the default), the installer also writes the
-same plugin entry to the OpenCode TUI config.
+The installer also attempts to write the same plugin entry to the OpenCode TUI
+config so the companion sidebar/badge can load. If the TUI config cannot be
+updated, setup continues and reports that the TUI badge step was skipped.
 
 ## Runtime tools provided by this plugin
 

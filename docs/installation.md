@@ -41,7 +41,7 @@ The installer supports the following options:
 
 ### Non-Destructive Behavior
 
-By default, the installer is non-destructive. If an `not-my-opencode.json` configuration file already exists, the installer will **not** overwrite it. Instead, it will display a message:
+By default, the installer is non-destructive. If a `not-my-opencode.json` configuration file already exists, the installer will **not** overwrite it. Instead, it will display a message:
 
 ```
 [i] Configuration already exists at ~/.config/opencode/not-my-opencode.json. Use --reset to overwrite.
@@ -114,7 +114,7 @@ bunx not-my-opencode@latest install --no-tui --skills=yes
 
 **Examples:**
 ```bash
-# Interactive install (asks about tmux and skills)
+# Interactive install (may prompt for optional follow-up actions)
 bunx not-my-opencode@latest install
 
 # Non-interactive with default skills
@@ -132,6 +132,7 @@ bunx not-my-opencode@latest install --reset
 
 The installer automatically:
 - Adds the plugin to `~/.config/opencode/opencode.json`
+- Attempts to add the companion TUI plugin entry to `~/.config/opencode/tui.json`
 - Disables default OpenCode agents
 - Enables OpenCode LSP integration when no explicit `lsp` setting exists
 - Generates agent model mappings in `~/.config/opencode/not-my-opencode.json` (or `.jsonc`)
@@ -249,9 +250,10 @@ See the [Multiplexer Integration Guide](multiplexer-integration.md) for more det
 
 ## Uninstallation
 
-1. **Remove the plugin from your OpenCode config**:
+1. **Remove the plugin from your OpenCode configs**:
 
-   Edit `~/.config/opencode/opencode.json` and remove `"not-my-opencode"` from the `plugin` array.
+   Edit `~/.config/opencode/opencode.json` and `~/.config/opencode/tui.json`,
+   then remove `"not-my-opencode"` from each `plugin` array where present.
 
 2. **Remove configuration files (optional)**:
    ```bash
@@ -264,4 +266,5 @@ See the [Multiplexer Integration Guide](multiplexer-integration.md) for more det
    npx skills remove agent-browser
    rm -rf ~/.config/opencode/skills/simplify
    rm -rf ~/.config/opencode/skills/codemap
+   rm -rf ~/.config/opencode/skills/clonedeps
    ```

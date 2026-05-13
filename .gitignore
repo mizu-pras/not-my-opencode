@@ -83,6 +83,6 @@ wheels/
 *.egg
 captures/
 
-# BEGIN oh-my-opencode-slim clonedeps
+# BEGIN not-my-opencode clonedeps
 .slim/clonedeps/repos/
-# END oh-my-opencode-slim clonedeps
+# END not-my-opencode clonedeps
