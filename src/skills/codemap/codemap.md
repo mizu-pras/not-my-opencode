@@ -2,35 +2,40 @@
 
 ## Responsibility
 
-- Provide a command-style skill package that standardizes repository mapping workflows for unfamiliar codebases.
-- Define the task contract used by Orchestrator/fixer agents via `SKILL.md` and operational guidance via `README.md`.
-- Generate and evolve change-aware codemap state artifacts (`.slim/codemap.json`) and scaffold placeholders (`codemap.md`).
+Bundled orchestrator skill for repository mapping and incremental codemap maintenance.
 
-## Design
+- `SKILL.md`: workflow contract for init/change-detection/fixer delegation.
+- `README.md`: concise operator docs and CLI examples.
+- `scripts/codemap.mjs`: local state management and codemap scaffold generator.
 
-- Contract layer: `SKILL.md` (machine prompt contract) + `README.md` (human-facing operation notes).
-- Execution layer: `scripts/codemap.mjs` exports deterministic helper functions:
-  - `parseArgs(argv)`
-  - `cmdInit`, `cmdChanges`, `cmdUpdate`
-  - `selectFiles`, `computeFileHash`, `computeFolderHash`, `createEmptyCodemap`
-  - `loadState`, `saveState`, `migrateLegacyState`
-- Persistence model: JSON state at `.slim/codemap.json` with `metadata`, `file_hashes`, and `folder_hashes`.
-- Testing layer: `scripts/codemap.test.ts` validates pattern matching, hash determinism, and migration behavior.
-- The script intentionally avoids network and mutates only filesystem-local state and codemap templates.
+## State model
 
-## Flow
+- Primary state file: `.slim/codemap.json`
+- Legacy input accepted: `.slim/cartography.json` (migrated forward)
+- Stored data:
+  - `metadata` (`version`, `last_run`, include/exclude patterns)
+  - `file_hashes`
+  - `folder_hashes`
 
-- Entry point `main(argv)` parses command and arguments (`init|changes|update`, `--root`, `--include`, `--exclude`, `--exception`) and dispatches via strict branches.
-- `cmdInit()` computes include/exclude candidate sets using `selectFiles()` and writes:
-  1) `.slim/codemap.json` via `saveState()`
-  2) one `codemap.md` per discovered folder via `createEmptyCodemap()`.
-- `cmdChanges()` reloads state (`loadState()` + `migrateLegacyState()`), recomputes current hashes, emits added/removed/modified diffs and affected folder list, and exits non-zero if state is absent.
-- `cmdUpdate()` recomputes full state from existing metadata and persists it, used after targeted fixers finish updates.
-- `codemap` skill invocation path in SKILL workflow is explicit: Step 1 checks `.slim/codemap.json` or `.slim/cartography.json`, then Step 2/3 selects init or incremental path.
+## Script surface
+
+`scripts/codemap.mjs` exposes three command paths:
+
+- `init`: select files, hash them, write state, create empty `codemap.md` placeholders per discovered folder.
+- `changes`: compare current hashes to saved state and report added/removed/modified files plus affected folders.
+- `update`: recompute hashes using existing metadata after folder codemaps are refreshed.
+
+Tests in `scripts/codemap.test.ts` cover hashing, file selection, and legacy-state migration.
+
+## Workflow contract
+
+- The skill tells the orchestrator to check existing codemap state first.
+- Initial runs create the state file and empty folder codemaps.
+- Incremental runs update only folders reported by `changes`.
+- After folder-level updates, the orchestrator refreshes the root `codemap.md` atlas and ensures `AGENTS.md` points future agents at the codemap.
 
 ## Integration
 
-- Installed under OpenCode through `src/cli/custom-skills.ts` as `name: 'codemap'`, `sourcePath: 'src/skills/codemap'`.
-- `src/cli/install.ts` copies this directory into the user skill directory; OpenCode executes `scripts/codemap.mjs` from that context.
-- `src/hooks/filter-available-skills/index.ts` applies agent-level skill gating via names from `getSkillPermissionsForAgent()`.
-- `scripts/verify-release-artifact.ts` includes codemap skill metadata and runtime checks as required packaged files.
+- Registered in `src/cli/custom-skills.ts` as bundled orchestrator-only skill `codemap`.
+- Installed by `src/cli/install.ts`; OpenCode executes the copied `scripts/codemap.mjs` from the user skill directory.
+- Runtime visibility is filtered through bundled-skill permission rules.

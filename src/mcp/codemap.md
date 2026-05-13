@@ -2,22 +2,38 @@
 
 ## Responsibility
 
-- Define and expose the built-in MCP endpoints (websearch, context7, grep.app) alongside the shared type aliases so the application can treat remote and local MCPs uniformly (`src/mcp/index.ts`, `src/mcp/types.ts`).
-- Provide a single entry point (`createBuiltinMcps`) for instantiating the default connectors while honoring feature flags/disabled lists.
+- Define built-in MCP connectors and the shared `McpConfig` type union.
+- Build the runtime MCP map while honoring disabled entries and websearch provider selection.
 
-## Design
+## Files
 
-- `types.ts` defines the discriminated union `McpConfig` with `RemoteMcpConfig` and `LocalMcpConfig`, keeping the shape of every connector explicit and easy to validate at compile time.
-- Each service file exports a `RemoteMcpConfig` literal that points at the remote URL and optionally supplies headers derived from the corresponding environment variable to avoid leaking secrets (`websearch.ts`, `context7.ts`, `grep-app.ts`).
-- `index.ts` aggregates the built-in configs in a `Record<McpName, McpConfig>` and exposes helpers/types for external consumers, keeping the set of hard-coded MCPs centralized.
+- `index.ts`: registry + `createBuiltinMcps(...)`.
+- `types.ts`: `RemoteMcpConfig | LocalMcpConfig` union.
+- `websearch.ts`: provider-aware websearch MCP factory.
+- `context7.ts`: Context7 remote MCP.
+- `grep-app.ts`: grep.app remote MCP.
 
-## Flow
+## Current behavior
 
-- On startup `createBuiltinMcps` iterates over the in-module registry and filters out any MCP listed in `disabled_mcps`, returning the remaining configs as a string-keyed record for the higher-level stack (`src/index.ts`).
-- Each remote config is evaluated eagerly, so the only per-request variability is the `disabled_mcps` list and the presence of environment-provided API keys for headers.
+- `createBuiltinMcps(disabledMcps, websearchConfig)`:
+  - starts from the built-in registry `{ websearch, context7, grep_app }`;
+  - filters out any names present in `disabled_mcps`;
+  - recreates `websearch` through `createWebsearchConfig(...)` unless websearch is disabled.
+
+- `createWebsearchConfig(...)` supports three providers:
+  - `exa` (default): remote MCP at `https://mcp.exa.ai/mcp?tools=web_search_exa`, with `EXA_API_KEY` appended as `exaApiKey` query param when present;
+  - `tavily`: remote MCP at `https://mcp.tavily.com/mcp/`, requires `TAVILY_API_KEY`, sends `Authorization: Bearer ...`, `oauth: false`;
+  - `brave`: local stdio MCP via `npx -y @brave/brave-search-mcp-server --transport stdio`, requires `BRAVE_API_KEY` in child environment.
+
+- `context7.ts` exports a remote connector for `https://mcp.context7.com/mcp` and passes `CONTEXT7_API_KEY` as a header when available.
+- `grep-app.ts` exports a fixed remote connector for `https://mcp.grep.app`.
+
+## Notes
+
+- Websearch is the only built-in MCP with runtime provider switching and can be either `remote` or `local`.
+- Missing provider credentials throw during MCP construction, not lazily at tool call time.
 
 ## Integration
 
-- `src/index.ts` imports `createBuiltinMcps` to construct the MCP map used by the runtime, passing the user/cli-configured `disabled_mcps` array.
-- Types exported from `src/mcp/types.ts` are re-exported by `src/mcp/index.ts`, letting other modules reference `McpConfig`, `LocalMcpConfig`, and `RemoteMcpConfig` without reaching into individual files.
-- Remote configs are pure data objects consumed by the runtime's MCP execution layer (via the `McpConfig` contract) and depend only on environment-provided credentials and the URLs defined here.
+- `src/index.ts` calls `createBuiltinMcps(...)` during plugin startup.
+- `McpName` comes from config; concrete connector shapes are defined here.

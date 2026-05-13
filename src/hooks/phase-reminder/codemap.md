@@ -2,29 +2,31 @@
 
 ## Responsibility
 
-Keep orchestrator guidance aligned over long turns by prepending a phase reminder to the latest user message text before the next LLM request.
+Keep orchestrator guidance aligned over long turns by appending a phase
+reminder to the latest orchestrator user message before the next LLM request.
 
 ## Design
 
-- `PHASE_REMINDER` constant is composed from `PHASE_REMINDER_TEXT` (`config/constants.ts`).
-- `createPhaseReminderHook()` returns a single `experimental.chat.messages.transform` handler.
-- Message filtering is role/agent-aware:
-  - locates the latest `'user'` role in `output.messages`,
-  - only mutates if no explicit agent or `agent === 'orchestrator'`,
-  - no-op for internal control messages containing `SLIM_INTERNAL_INITIATOR_MARKER`.
-- Mutation target is the first `text` part in that message; replacement is an in-place prefix.
-- Uses `SLIM_INTERNAL_INITIATOR_MARKER` from `../../utils` to avoid feedback loops.
+- `PHASE_REMINDER` wraps `PHASE_REMINDER_TEXT` in
+  `<internal_reminder>...</internal_reminder>`.
+- `createPhaseReminderHook()` returns one
+  `experimental.chat.messages.transform` handler.
+- The hook scans backward for the latest user message, limits itself to
+  orchestrator/unspecified agent turns, skips internal initiator messages, and
+  avoids duplicate reminder injection.
+- Mutation target is the first text part in that latest user message.
 
 ## Flow
 
-1. On transform, scan backward through `messages` for last `info.role === 'user'`.
-2. If agent is non-orchestrator, return.
-3. Locate first part where `type === 'text'`.
-4. If marker exists, return.
-5. Prefix `part.text` with `PHASE_REMINDER + '\n\n---\n\n'`.
+1. Scan backward for the latest `info.role === 'user'`.
+2. Skip non-orchestrator agent turns.
+3. Find the first text part.
+4. Skip if the part already contains `SLIM_INTERNAL_INITIATOR_MARKER` or
+   `PHASE_REMINDER`.
+5. Append `\n\n---\n\n${PHASE_REMINDER}` to that text part.
 
 ## Integration
 
-- Registered through `src/hooks/index.ts` and plugin-level hook wiring in `src/index.ts`.
-- Consumes `experimental.chat.messages.transform` and mutates the outgoing `messages` payload only.
-- Does not depend on stateful services; no network or client APIs are required.
+- Registered through `src/hooks/index.ts` and plugin hook wiring in
+  `src/index.ts`.
+- Mutates outgoing `messages` payload only; no client or network state.

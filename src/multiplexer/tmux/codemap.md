@@ -2,39 +2,42 @@
 
 ## Responsibility
 
-- Provide tmux-specific pane orchestration for attaching OpenCode child sessions to a split pane beside the current pane.
-- Handle lifecycle of spawned panes (create, rename, layout rebalancing, graceful close).
-- Resolve and cache tmux executable location for repeated operations.
+- Implement the tmux backend for `Multiplexer`.
+- Spawn `opencode attach` panes, rename them, and rebalance tmux layout after spawn/close bursts.
 
-## Design
+## Main behavior
 
-- `TmuxMultiplexer` in `index.ts` implements `Multiplexer`.
-- `findBinary` uses platform command (`which` or `where`) and validates the binary via `-V`.
-- `isAvailable` caches `binaryPath` and `hasChecked` to avoid repeated lookups.
-- `targetPane` captures `process.env.TMUX_PANE` and is reused as `targetArgs()` for scoped tmux actions.
-- Command execution is performed with `crossSpawn` to support both Bun and Node process interfaces.
-- `quoteShellArg` provides shell-safe quoting used for directory/URL/session injection in `opencode` commands.
+- `TmuxMultiplexer` caches tmux binary discovery in `binaryPath`/`hasChecked`.
+- `targetPane` captures `TMUX_PANE` once and is reused through `targetArgs()` so layout and split operations stay scoped to the originating pane/window.
+- All subprocesses run through `crossSpawn(...)` for Node/Bun compatibility.
 
-## Flow
+## Lifecycle
 
 - `spawnPane(sessionId, description, serverUrl, directory)`:
-  - ensure binary through `getBinary()`
-  - build command: `opencode attach <url> --session <sessionId> --dir <directory>`
-  - execute `tmux split-window -h -d -P -F '#{pane_id}' ...` with optional `-t <TMUX_PANE>`
-  - on success:
-    - rename pane with `select-pane -T` using first 30 chars of `description`
-    - call `applyLayout(storedLayout, storedMainPaneSize)`.
-- `applyLayout(layout, mainPaneSize)`:
-  - `select-layout` on current target
-  - for `main-*` layouts, update `main-pane-height|width` and re-select layout for deterministic size.
+  - resolves the tmux binary via `which`/`where` + `tmux -V` validation;
+  - shell-quotes URL, session id, and directory;
+  - runs `tmux split-window -h -d -P -F '#{pane_id}' ... 'opencode attach ...'`;
+  - renames the pane to the first 30 chars of `description`;
+  - schedules a debounced layout rebalance instead of applying layout immediately.
+
 - `closePane(paneId)`:
-  - `send-keys -t <pane> C-c`
-  - wait 250ms
-  - `kill-pane -t <pane>`
-  - on success, re-run `applyLayout` to rebalance panes.
+  - sends `C-c` first for graceful shutdown;
+  - waits 250ms;
+  - kills the pane;
+  - schedules the same debounced layout rebalance on success.
+
+- `applyLayout(layout, mainPaneSize)`:
+  - cancels any pending debounced layout run;
+  - applies `select-layout` immediately;
+  - for `main-horizontal` / `main-vertical`, also sets `main-pane-height` or `main-pane-width` and reapplies the layout.
+
+## Layout strategy
+
+- `scheduleLayout()` debounces repeated spawn/close bursts with `TMUX_LAYOUT_DEBOUNCE_MS`.
+- `layoutGeneration` prevents stale timers from applying old layout state after a newer change.
+- Stored layout settings are updated by `applyLayoutNow(...)` and reused for deferred rebalances.
 
 ## Integration
 
-- Selected when `multiplexerConfig.type === 'tmux'` or auto mode resolves to tmux (`process.env.TMUX`).
-- Consumed by `MultiplexerSessionManager` for `session.created` spawn and completion cleanup.
-- Uses `ctx.directory` as working directory, OpenCode API URL as `serverUrl`, and session id as `opencode attach --session` target.
+- Selected by `src/multiplexer/factory.ts` when config type is `tmux` or auto-detect sees `TMUX`.
+- Used only through `MultiplexerSessionManager`; session ownership/lifecycle decisions live one layer up.

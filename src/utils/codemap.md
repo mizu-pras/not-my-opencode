@@ -1,85 +1,57 @@
 # src/utils/
 
-Cross-cutting runtime utilities used by orchestration, hooks, and plugin I/O.
-
 ## Responsibility
 
-- **tmux.ts**: Multiplexer-safe pane lifecycle helpers (`spawnPane`, `closePane`) used by tmux and zellij adapters.
-- **subagent-depth.ts**: Tracks delegated session depth and enforces max nested delegation depth.
-- **agent-variant.ts**: Normalizes agent names and applies optional variant labels without overriding existing body configuration.
-- **env.ts**: Unified environment lookup across Bun/Node with empty-string filtering.
-- **session-manager.ts**: Tracks resumable `task` tool sessions by parent session + agent type, normalizes user labels, assigns stable short aliases, and exposes prompt rendering/eviction behavior.
-- **session.ts**: Session extraction helpers for multi-turn synthesis and prompt/result post-processing.
-- **polling.ts**: Shared polling with stability thresholds and abort-signal support.
-- **zip-extractor.ts**: Cross-platform zip/tar extraction with Windows fallback tooling.
-- **task.ts**: Parses `task` tool CLI output to recover `task_id` for resumption.
-- **system-collapse.ts**: Collapses multiple system prompt fragments into one array element while mutating the original array reference.
-- **logger.ts**: Structured JSON logging to temporary files.
-- **internal-initiator.ts**: Marker utilities for internal orchestrator text-part tagging.
-- **compat.ts**: Backward compatibility helpers.
-- **index.ts**: Public re-export barrel for utility modules.
+Cross-cutting runtime helpers for session orchestration, resumable-task memory, prompt shaping, runtime compatibility, and small infrastructure concerns.
 
-## Design
+## Important files
 
-- **Deterministic lifecycle tracking**: `SubagentDepthTracker` maps session IDs → depth and is cleaned on session deletion.
-- **Parent-scoped resumable session store**: `SessionManager` groups tasks by `{parentSessionId, agentType}` and maintains LRU-ish ordering by last-used counter so active resumable sessions stay in memory.
-- **Provider-safe env access**: `getEnv` falls back from `Bun.env` to `process.env` and normalizes blank values.
-- **Graceful shutdown protocol**: Multiplexer pane close path sends Ctrl+C before kill, then rebalances layout state.
-- **Session extraction model**: `extractSessionResult`/`parseModelReference` style helpers are centralized under `session.ts`.
-- **In-place system normalization**: `collapseSystemInPlace` purposely mutates `system` array to preserve references held by OpenCode internals.
-- **Resilient polling**: `pollUntilStable` requires consecutive confirmations before success.
+- `session.ts`: prompt timeout, abort timeout, model parsing, assistant-text extraction.
+- `session-manager.ts`: parent-scoped resumable `task` session store and prompt formatter.
+- `subagent-depth.ts`: nested child-session depth tracking.
+- `system-collapse.ts`: in-place system-message collapse.
+- `internal-initiator.ts`: invisible marker for plugin-injected text parts.
+- `polling.ts`: generic polling loop + delay helper.
+- `env.ts`: Bun/Node env lookup.
+- `compat.ts`: cross-runtime process spawn/file write helpers.
+- `task.ts`: `task_id` extraction from tool output.
+- `logger.ts`, `agent-variant.ts`, `zip-extractor.ts`, `index.ts`: supporting utilities and exports.
 
-## Flow
+## Session helpers (`session.ts`)
 
-### `subagent-depth.ts`
+- `parseModelReference('provider/model')` validates and splits model strings for OpenCode prompt bodies.
+- `promptWithTimeout(...)` races `session.prompt(...)` against timeout and optional abort signal:
+  - on timeout it best-effort aborts the session via `abortSessionWithTimeout(...)`;
+  - on abort it throws `Prompt cancelled`.
+- `extractSessionResult(...)` reads all assistant messages and concatenates `text` parts plus optional `reasoning` parts; it returns `{ text, empty }` so callers can distinguish silent provider output from normal content.
+- `shortModelLabel(...)` trims `provider/` for display/logging.
 
-- `registerChild(parentSessionId, childSessionId)` computes `childDepth = parentDepth + 1`.
-- Blocks registration when depth exceeds `DEFAULT_MAX_SUBAGENT_DEPTH`.
-- `cleanup(sessionId)` and `cleanupAll()` remove depth state for terminated sessions.
+## Resumable task memory (`session-manager.ts`)
 
-### `session-manager.ts`
+- Stores sessions by `{ parentSessionId, agentType }` with stable aliases like `exp-1`, `fix-2`, `cnc-1`.
+- `deriveTaskSessionLabel(...)` prefers explicit description, then first prompt line, then `recent {agentType} task`.
+- `remember`, `resolve`, `markUsed`, `drop`, `dropTask`, and `clearParent` manage reuse and eviction.
+- Tracks recently read context files per task and formats them into `### Resumable Sessions` prompt text.
+- Context file retention is filtered by minimum line count and capped by recent-read ordering.
 
-- `deriveTaskSessionLabel` computes a deterministic prompt hint:
-  - uses `description` if provided,
-  - falls back to first non-empty normalized line of `prompt`,
-  - else returns `recent {agentType} task`.
-- `remember` creates/reuses entries keyed by `{parentSessionId, agentType}` and enforces a per-agent max via `trimGroup`.
-- Alias generation is monotonic within each parent+agent (`exp-1`, `lib-2`, etc.).
-- `markUsed`, `resolve`, `drop`, `dropTask`, `clearParent` keep the store consistent on reuse and teardown.
-- `formatForPrompt` returns grouped and ranked prompt text (`### Resumable Sessions ...`) for use in system transforms.
+## Depth / system / marker helpers
 
-### `tmux.ts`
+- `SubagentDepthTracker` assigns child depth as `parentDepth + 1`, blocks registration past `maxDepth`, and cleans state per session or globally.
+- `collapseSystemInPlace(system)` mutates the original array reference, joining entries with blank lines and removing empty single-entry arrays.
+- `createInternalAgentTextPart(...)` appends `<!-- SLIM_INTERNAL_INITIATOR -->`; `hasInternalInitiatorMarker(...)` lets consumers filter plugin-internal prompts back out of user-visible state.
 
-- `spawnPane` flow: validate enabled state → check multiplexer availability → resolve binary → execute attach command with layout handling.
-- `closePane` flow: send SIGINT-equivalent key sequence → delay → terminate pane → rebalance layout if needed.
-- `isServerRunning` flow: bounded `/health` checks with retries and caching.
+## Runtime helpers
 
-### `polling.ts`
+- `pollUntilStable(...)` repeatedly calls an async fetcher until the caller-defined stability predicate passes for the configured threshold, or timeout/abort occurs.
+- `getEnv(...)` checks `Bun.env` first, then `process.env`, ignoring empty strings.
+- `crossSpawn(...)` wraps `node:child_process.spawn` behind a Bun-like interface with collected stdout/stderr promises.
+- `crossWrite(...)` normalizes binary/string writes.
+- `parseTaskIdFromTaskOutput(...)` extracts `task_id:` tokens from tool output lines.
 
-- `pollUntilStable(fn, options)` repeatedly calls async predicate and tracks consecutive true states.
-- Returns once stable threshold is met, timeout elapses, or abort signal is raised.
+## Integration notes
 
-### `session.ts`
-
-- Composes prompt parts and extracts normalized session output for text/call/result flows.
-- Hosts shared parsing/formatting utilities used by council and tool execution layers.
-
-### `task.ts`
-
-- Scans task output line-by-line and extracts `task_id` from `task_id: <id>` format.
-
-### `system-collapse.ts`
-
-- `collapseSystemInPlace(system: string[])` joins all system entries using `\n\n`, clears and repopulates the same array reference, and preserves empty-array behavior.
-
-## Integration
-
-- **Consumers**
-  - `src/multiplexer/*`: `SubagentDepthTracker` and `tmux.ts` integration.
-  - `src/council/council-manager.ts`: depth control and session extraction helpers.
-  - `src/hooks/*`: marker detection, polling, and session-aware state helpers.
-  - `src/hooks/task-session-manager`: `SessionManager`, `parseTaskIdFromTaskOutput`, and `deriveTaskSessionLabel` provide resumable-session workflow; the plugin’s system-transform passes the hook output through `collapseSystemInPlace` after this manager injects prompts.
-
-- **Dependencies**
-  - Pulls constants from `../config` (`DEFAULT_MAX_SUBAGENT_DEPTH`, polling intervals/timeouts).
-  - `index.ts` re-exports utility API (`agent-variant`, `env`, `polling`, `logger`, `session`, `subagent-depth`, etc.).
+- `src/council/council-manager.ts` depends on `session.ts` and `subagent-depth.ts`.
+- `src/hooks/task-session-manager/` uses `SessionManager`, `parseTaskIdFromTaskOutput`, and `collapseSystemInPlace`.
+- `src/interview/service.ts` uses the internal initiator marker to hide plugin-injected prompts from parsed interview state.
+- `src/multiplexer/*` uses `compat.ts` directly; pane helpers are no longer housed in a separate `utils/tmux.ts` file.
+- `index.ts` currently re-exports only a subset of utilities (`agent-variant`, `env`, `internal-initiator`, `logger`, `polling`, `session`, `session-manager`, `task`, `zip-extractor`).

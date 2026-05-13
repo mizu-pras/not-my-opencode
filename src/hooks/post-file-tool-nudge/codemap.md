@@ -2,28 +2,28 @@
 
 ## Responsibility
 
-Detect recent file interaction (`Read`/`Write`) and queue a one-shot workflow reminder that is injected on the next system prompt transform without mutating tool execution output.
+Append a one-shot internal workflow reminder directly to `Read`/`Write` tool
+output so orchestrator sessions get an immediate post-file-action nudge.
 
 ## Design
 
-- Factory `createPostFileToolNudgeHook(options?)` emits three handlers:
-  - `tool.execute.after`
-  - `experimental.chat.system.transform`
-  - `event`
-- A per-instance in-memory `pendingSessionIds: Set<string>` tracks sessions that recently ran file tools.
+- `createPostFileToolNudgeHook(options?)` exposes only `tool.execute.after`.
 - `FILE_TOOLS` is the canonical set `{ 'Read', 'read', 'Write', 'write' }`.
-- Injection is optional per session via `options.shouldInject?: (sessionID) => boolean`.
-- Cleanup path handles both `session.deleted` payload shapes (`properties.sessionID` and `properties.info.id`).
+- `appendReminder(output)` mutates only string tool output and skips duplicate
+  reminder insertion.
+- Optional `shouldInject(sessionID)` can suppress nudges per session before
+  output mutation.
 
 ## Flow
-1. `tool.execute.after`: if tool is file tool and has `sessionID`, add it to `pendingSessionIds`.
-2. `experimental.chat.system.transform`: if session has pending marker, remove it and append `POST_FILE_TOOL_NUDGE` (`PHASE_REMINDER_TEXT`) to `output.system`.
-3. Optional `shouldInject` gate can consume without injecting.
-4. Additional `Read`/`Write` events before the same transform collapse to one reminder due to set semantics.
-5. `session.deleted` event removes stale session IDs from the set.
+
+1. On `tool.execute.after`, match `Read`/`Write` tool names and require
+   `sessionID`.
+2. If `shouldInject(sessionID)` returns false, stop.
+3. If `output.output` is a string and does not already contain the reminder,
+   append an `<internal_reminder>` block carrying `PHASE_REMINDER_TEXT`.
 
 ## Integration
 
-- Registered via `src/hooks/index.ts` and activated in plugin lifecycle registration.
-- Mutates `output.system` only, ensuring persisted file tool outputs remain untouched.
-- Consumed by orchestrator session flows that need anti-pattern mitigation (`inspect/edit` loops).
+- Registered via `src/hooks/index.ts` and plugin lifecycle wiring.
+- Mutates tool output directly; no queued state, system-transform stage, or
+  event cleanup remains.

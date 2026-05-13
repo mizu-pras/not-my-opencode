@@ -2,132 +2,78 @@
 
 ## Responsibility
 
-- Implement the `/interview` command flow:
-  - command registration and pre-exec interception,
-  - interactive stateful interview prompts,
-  - markdown document generation/persistence,
-  - local HTTP UI server and shared dashboard mode.
-- Keep interview lifecycle synchronized across:
-  - in-memory session/interview maps,
-  - markdown artifacts under `outputFolder`,
-  - dashboard cache used for cross-process recovery and browser polling.
-- Support two runtime modes:
-  - **per-session mode** (local interview server)
-  - **dashboard mode** (distributed cache + shared interview pages).
+- Implement `/interview` command interception plus live interview state management.
+- Keep session state, markdown spec files, and browser UI/dashboard state synchronized.
+- Support both per-session local UI and shared dashboard mode.
 
-## Design
+## Main modules
 
-- `index.ts` exports `createInterviewManager`.
+- `manager.ts`: composition root and mode switch.
+- `service.ts`: interview domain logic and session/event integration.
+- `server.ts`: per-session HTTP UI.
+- `dashboard.ts`: shared dashboard server, auth, cache, and recovery.
+- `document.ts`: path/frontmatter/markdown rewrite helpers.
+- `parser.ts`: `<interview_state>` extraction and fallback state generation.
+- `prompts.ts`, `helpers.ts`, `types.ts`, `ui.ts`: prompt templates, HTTP helpers, schemas, and HTML renderers.
 
-- `manager.ts` (composition root)
-  - Creates `createInterviewService(ctx, interviewConfig)` once.
-  - Chooses mode via
-    `interview.dashboard === true || interview.port > 0`.
-  - In dashboard mode:
-    - calls `tryBecomeDashboard(...)` to elect one process as dashboard,
-    - non-dashboard processes read auth token via `readDashboardAuthFile(port)`,
-    - sessions are registered with `/api/register` and sync state back via `/api/interviews/{id}/state`,
-    - 10-second fallback polling keeps answer/nudge delivery active if needed.
-  - Returns event hooks:
-    `registerCommand`, `handleCommandExecuteBefore`, `handleEvent`.
+## Manager behavior
 
-- `createInterviewService` (`service.ts`)
-  - Manages interview domain maps:
-    - `interviewsById`, `activeInterviewIds`, `sessionBusy`, `sessionModel`.
-  - Creates and resumes interviews:
-    - `resolveExistingInterviewPath`, `createInterview`, `resumeInterview`.
-  - Syncs state from session messages:
-    - loads messages,
-    - extracts assistant state via `findLatestAssistantState`,
-    - fallbacks through `buildFallbackState` when needed,
-    - rewrites markdown with `rewriteInterviewDocument`.
-  - Injects prompts:
-    - kickoff (`buildKickoffPrompt`),
-    - resume (`buildResumePrompt`),
-    - answer/nudge handling (`buildAnswerPrompt`, `handleNudgeAction`).
-  - Handles events:
-    - `session.status` updates busy tracking,
-    - `session.deleted` marks interview abandoned and drains maps.
-  - Pushes updates:
-    - `onStateChange` callback for dashboard mode,
-    - `onInterviewCreated` callback for immediate registration,
-    - optional `openBrowser` for initial UI open.
+- `createInterviewManager(ctx, config)` enables dashboard mode when `interview.dashboard === true` or `interview.port > 0`; otherwise it runs a local per-session server on a random port.
+- Dashboard mode tries `tryBecomeDashboard(...)` first:
+  - winner keeps the HTTP dashboard, auth token file, in-process state cache, and file-scan recovery;
+  - non-winners probe the dashboard, read the auth file, register their session directory over HTTP, and push state/interview creation back to the dashboard;
+  - if the dashboard cannot be reached after retry, the process falls back to per-session server mode.
+- A 10s fallback timer keeps polling for pending answers and nudge actions while running as a session client.
 
-- `createInterviewServer` (`server.ts`)
-  - Owns the per-session HTTP endpoints and HTML renderer binding.
-  - Supports:
-    - `GET /`, `GET /api/interviews`, `GET /interview/{id}`
-    - `GET /api/interviews/{id}/state`
-    - `POST /api/interviews/{id}/answers`
-    - `POST /api/interviews/{id}/nudge`
-  - Maps domain errors to HTTP status in `getSubmissionStatus`.
+## Service behavior
 
-- `dashboard.ts`
-  - Implements a shared dashboard server and state cache.
-  - Auth path:
-    - random token written to `${XDG_DATA_HOME}/opencode/.dashboard-<port>.json`,
-    - validated via cookie, query token, or Bearer header.
-  - In-memory state/cache contracts:
-    - `sessions` registry,
-    - `stateCache` keyed by interview ID,
-    - pending answers and nudge actions with consume-on-read semantics.
-  - Recovery/scan:
-    - periodic `rebuildFromFiles()` from markdown frontmatter,
-    - session directory discovery via SDK + manual folders,
-    - file scanning in known directories and cached file lists.
-  - TTL cleanup removes terminal states after 24h.
+- Tracks:
+  - `activeInterviewIds` by session,
+  - `interviewsById`,
+  - `sessionBusy`,
+  - last observed `sessionModel`,
+  - browser-open and file-list caches.
+- `handleCommandExecuteBefore(...)`:
+  - registers `/interview` if needed;
+  - blank args with no active interview inject a prompt asking for a one-line idea;
+  - blank args with an active interview reopens the UI and instructs the agent to continue without duplicating unanswered questions;
+  - existing slug/path resumes a markdown-backed interview;
+  - otherwise creates a new interview file and injects the kickoff prompt.
+- `syncInterview(...)`:
+  - loads session messages after `baseMessageCount`;
+  - filters out plugin-internal text parts marked with `SLIM_INTERNAL_INITIATOR_MARKER`;
+  - extracts the latest valid assistant `<interview_state>` block;
+  - falls back to file summary + inferred state when parsing fails or no block exists;
+  - optionally renames the markdown file to the assistant-provided title;
+  - rewrites the markdown spec and emits dashboard state updates.
+- `submitAnswers(...)` and `handleNudgeAction(...)`:
+  - enforce not-found/abandoned/busy guards;
+  - set the busy lock before async work to avoid duplicate submissions;
+  - append answers to markdown or build continuation/finalization prompts;
+  - use `session.promptAsync(...)` with the last seen session model when available.
+- `handleEvent(...)`:
+  - `session.status` updates busy flags;
+  - `message.updated` captures `providerID/modelID` for later `promptAsync` reuse;
+  - `session.deleted` marks the active interview abandoned and clears per-session maps.
 
-- Supporting modules:
-  - `document.ts`: markdown/file helpers (`slugify`, path resolution, frontmatter,
-    title/summary extraction).
-  - `parser.ts`: assistant state parse pipeline (`parseInterviewState`,
-    `findLatestAssistantState`, `buildFallbackState`).
-  - `prompts.ts`: prompt templates for create/resume/answer/nudge.
-  - `helpers.ts`: request parsing and HTML/JSON response helpers.
-  - `types.ts`: domain schemas and interview contracts.
+## Dashboard behavior
 
-## Flow
+- Auth token is stored at `${XDG_DATA_HOME || ~/.local/share}/opencode/.dashboard-<port>.json` and validated by cookie, query token, or bearer token.
+- Maintains:
+  - registered sessions/directories,
+  - `stateCache` by interview ID,
+  - consume-on-read pending answers,
+  - consume-on-read nudge actions,
+  - manual/discovered scan folders.
+- Rebuilds disconnected interview entries from markdown frontmatter as `recovered-*` records and removes stale recovered entries once a live interview with the same slug appears.
+- Scans known output folders for resumable `.md` files and trims terminal cache entries after 24h.
 
-- `src/index.ts` wires this folder through
-  `createInterviewManager(ctx, config)`.
+## HTTP surfaces
 
-- **Per-session mode**
-  - service created and bound to a lazy `createInterviewServer({ port: 0 })`,
-  - command hook calls flow directly into service.
-
-- **Dashboard mode**
-  1. `createInterviewManager` invokes `tryBecomeDashboard`.
-  2. Dashboard election succeeds:
-     - dashboard keeps local cache callbacks (`setStatePushCallback`,
-       `setOnInterviewCreated`),
-     - self-registers session directory and rebuilds file-derived state.
-  3. Election fails:
-     - process becomes client session,
-     - reads token file,
-     - registers with dashboard,
-     - pushes state + interview creation over HTTP,
-     - polls `/pending` and `/nudge` on idle.
-  4. If probe+fallback fails twice, manager falls back to per-session server.
-
-- `handleCommandExecuteBefore`
-  - blank input with no active interview starts ideation,
-  - matching slug/path resumes an existing interview,
-  - otherwise creates a new interview and injects kickoff prompt.
-
-- `handleEvent`
-  - on `session.status: idle`:
-    - consume dashboard pending answers/nudge first,
-    - then refresh interview state so `sessionBusy` is reflected accurately.
-  - on `session.deleted`:
-    - unregisters session from the dashboard and local bookkeeping.
+- `server.ts` exposes `GET /`, `GET /api/interviews`, `GET /interview/:id`, `GET /api/interviews/:id/state`, `POST /api/interviews/:id/answers`, and `POST /api/interviews/:id/nudge`.
+- Error mapping distinguishes not found, busy/conflict, malformed payload, invalid question state, and generic server failures.
 
 ## Integration
 
-- Used by `src/index.ts` as the interview plugin module.
-- Uses OpenCode SDK session APIs for messages, prompts, and status events.
-- Uses local HTTP server contracts for:
-  - dashboard browsing,
-  - browser ↔ session sync endpoints,
-  - manual file/discovery settings.
-- Existing tests cover service, parser, manager, server, dashboard, and helpers
-  under `src/interview/*.test.ts`.
+- Wired from `src/index.ts` via command hooks and session/message lifecycle events.
+- Depends on OpenCode session APIs for messages, prompt injection, async prompting, and status updates.

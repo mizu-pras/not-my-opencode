@@ -1,83 +1,64 @@
 # src/hooks/
 
-This directory is the plugin-level hook composition surface. It exports factories
-and managers for all hook-based runtime behaviors used by
-`src/index.ts` (tool transforms, event listeners, and command hooks).
+This directory is the plugin-level hook composition surface. It exports
+factories and managers consumed by `src/index.ts` for prompt transforms,
+tool interception, lifecycle listeners, and runtime commands.
 
 ## Responsibility
 
-- Own the stable exports for hook modules so `src/index.ts` can register features
-  without depending on subfolder internals.
-- Describe lifecycle boundaries between OpenCode hook surfaces and internal state
-  machines that coordinate retries, timers, and session tracking.
-- Centralize all hook feature entry points used by orchestrator tooling,
-  delegation/task workflows, and session lifecycle handlers.
+- Expose stable hook entry points without leaking per-feature internals.
+- Document which OpenCode hook surfaces each feature occupies.
+- Centralize runtime behaviors for patch rewriting, task/session reuse,
+  workflow reminders, fallback handling, and startup policy.
 
 ## Design
 
 - `src/hooks/index.ts` re-exports per-feature factories and managers.
-- Most features implement the `create*Hook(ctx, config?)` factory pattern and
-  return lifecycle callbacks.
-- Foreground fallback is provided as a manager class (`ForegroundFallbackManager`)
-  with an explicit `handleEvent` method.
-- `task-session-manager` persists resumable task sessions per parent session and
-  per agent, with bounded history and aliasing.
-- Side effects are limited to exported handlers and dedicated utility functions
-  to keep hook behavior deterministic.
-- Runtime integration depends on `PluginInput.client` for session APIs and shared
-  utilities (`log`, marker constants, prompt helpers).
+- Most features follow `create*Hook(...)` and return lifecycle callbacks.
+- `ForegroundFallbackManager` is the main exception: an event-driven manager with
+  explicit `handleEvent(...)` state.
+- Task/todo features maintain small in-memory state machines for aliasing,
+  cooldowns, dedupe, and cleanup.
+- Runtime integration relies on `PluginInput.client` plus shared utilities such
+  as `log`, marker constants, prompt helpers, and session helpers.
 
 ## Flow
 
-1. `src/index.ts` imports each hook symbol from this folder.
-2. The plugin creates hook instances during startup and registers callbacks in
-   these surfaces:
-   - `tool.execute.before`
-   - `tool.execute.after`
-   - `experimental.chat.messages.transform`
-   - `experimental.chat.system.transform`
-   - `chat.headers`
-   - `chat.message`
-   - `command.execute.before`
-   - `event`
-3. Implementations either mutate OpenCode payloads (for in-band guidance or
-   prompt/system injection) or call session APIs (`todo`, `messages`, `prompt`,
-   `promptAsync`, `abort`, and event/status flows).
+1. `src/index.ts` imports hook symbols from this folder.
+2. Startup creates instances and wires them into OpenCode hook surfaces.
+3. Hooks either mutate outgoing payloads (`args`, messages, tool output) or call
+   session APIs (`todo`, `messages`, `prompt`, `promptAsync`, `abort`).
 
 ## Hook Points
 
 | Hook Point | Purpose | Implementations |
 |---|---|---|
 | `tool.execute.before` | Pre-process tool inputs | `apply-patch`, `task-session-manager` |
-| `tool.execute.after` | Post-process tool outputs | `delegate-task-retry`, `json-error-recovery`, `post-file-tool-nudge`, `task-session-manager` |
-| `experimental.chat.messages.transform` | Rewrite outbound user content | `filter-available-skills`, `phase-reminder` |
-| `experimental.chat.system.transform` | Inject system-level directives | `todo-continuation`, `post-file-tool-nudge`, `task-session-manager` |
+| `tool.execute.after` | Post-process tool outputs | `delegate-task-retry`, `json-error-recovery`, `post-file-tool-nudge`, `task-session-manager`, `todo-continuation` (hygiene arming) |
+| `experimental.chat.messages.transform` | Rewrite outbound user content | `filter-available-skills`, `phase-reminder`, `task-session-manager`, `todo-continuation` |
 | `chat.headers` | Mutate request headers | `chat-headers` |
 | `chat.message` | Track runtime session/agent mapping | `todo-continuation` |
-| `command.execute.before` | Handle slash-command UX | `todo-continuation` (`auto-continue`) |
-| `event` | React to session lifecycle and runtime failures | `foreground-fallback`, `todo-continuation`, `post-file-tool-nudge`, `auto-update-checker`, multiplexer managers, `task-session-manager` |
+| `command.execute.before` | Handle slash-command UX | `todo-continuation` (`/auto-continue`) |
+| `event` | React to session lifecycle and runtime failures | `foreground-fallback`, `todo-continuation`, `auto-update-checker`, multiplexer managers, `task-session-manager` |
 
 ## Implementation Notes
 
-- `createDelegateTaskRetryHook` (`tool.execute.after`) is a narrow guard around
-  `task` tool failure strings and appends structured retry guidance inline.
-- `ForegroundFallbackManager` listens to event traffic and remediates
-  foreground rate-limit failures by aborting the current prompt and re-queuing the
-  latest user message on the next model in a per-agent chain.
-- `createTodoContinuationHook` spans multiple surfaces: message transform,
-  system transform, command interception, tool-after, and events. It owns
-  auto-injection state, cooldown, suppress windows, and orchestration session
-  tracking.
-- `createTaskSessionManagerHook` tracks task sessions for resumability: generates
-  user-facing aliases, resolves alias/task IDs before delegation, remembers fresh
-  task IDs after completion, and drops stale entries on missing-session failure,
-  renamed task IDs, or session deletion.
+- `createApplyPatchHook` rewrites stale-but-safe `apply_patch` hunks and fails
+  closed except for plugin-side outside-workspace preflight cases that defer to
+  native validation.
+- `ForegroundFallbackManager` watches event traffic and re-queues the latest user
+  prompt on the next model in a configured chain after aborting a rate-limited
+  foreground request.
+- `createTodoContinuationHook` owns auto-continue timers, suppress windows,
+  request-signature dedupe, slash-command toggling, chat-message tracking, and
+  todo-hygiene reminder injection.
+- `createTaskSessionManagerHook` resolves short task aliases, remembers fresh
+  task IDs, tracks read-context hints, and injects resumable-session guidance
+  into outgoing orchestrator user messages.
 
 ## Integration
 
-- `src/index.ts` is the sole runtime consumer and determines final registration
-  order so composed transforms (system joins, reminder insertion, hygiene) stay
-  deterministic.
-- `taskSessionManager` is registered in `tool.execute.before`, `tool.execute.after`,
-  `experimental.chat.system.transform`, and `event`, with parent/child cleanup.
-- The `src/hooks/*/codemap.md` files document each feature internals.
+- `src/index.ts` is the sole runtime consumer and determines registration order.
+- `taskSessionManager` is registered in `tool.execute.before`,
+  `tool.execute.after`, `experimental.chat.messages.transform`, and `event`.
+- The `src/hooks/*/codemap.md` files document feature internals.

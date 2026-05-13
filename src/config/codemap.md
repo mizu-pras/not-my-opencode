@@ -2,102 +2,77 @@
 
 ## Responsibility
 
-`src/config/` owns plugin configuration schema, load/merge pipeline, prompt
-resolution, and helper APIs used by agents, council, and runtime subsystems.
+`src/config/` owns config schema, load/merge rules, preset composition, prompt
+lookup, MCP defaults, and runtime preset state shared across plugin re-inits.
 
-## Architecture
+## Main entrypoints
 
-### Core entry points
+- `loadPluginConfig(directory, options?)` — runtime loader used by `src/index.ts`
+- `PluginConfigSchema` — authoritative schema for user/project config
+- `loadAgentPrompt(agentName, preset?)` — prompt file discovery for agents
+- `runtime-preset.ts` — process-local active/previous runtime preset tracking
 
-- `loadPluginConfig(directory)` is the top-level loader used by `src/index.ts`.
-- `PluginConfigSchema` validates and normalizes raw config, including:
-  - legacy council field deprecation capture
-  - strict guard that `prompt` / `orchestratorPrompt` are only for custom
-    agents.
-- `getAgentPrompt`/`loadAgentPrompt` and related helpers are consumed by
-  agent registry.
-
-### Merge and load pipeline
+## Load/merge pipeline (`loader.ts`)
 
 `loadPluginConfig(directory)`:
 
-1. Locate user config (prefer `.jsonc`, then `.json`) from:
-   - `OPENCODE_CONFIG_DIR`
-   - `XDG_CONFIG_HOME/opencode`
-   - `~/.config/opencode`
-2. Locate project config at
+1. Resolve user config from `getConfigSearchDirs()` (`OPENCODE_CONFIG_DIR`, then
+   XDG/default config dir), preferring `.jsonc` over `.json`.
+2. Resolve project config from
    `<directory>/.opencode/not-my-opencode.(jsonc|json)`.
-3. Validate with schema. Invalid/malformed files are warned and ignored by
-   returning `null` for that file.
-4. Merge user+project configs where project takes precedence:
-   nested merges for `agents`, `tmux`, `multiplexer`, `interview`, `sessionManager`,
-   `fallback`, `council`.
-   top-level arrays/values are overridden.
-5. If `tmux` is enabled and no explicit `multiplexer` is configured,
-   migrate to `multiplexer` (`tmux` compatibility path).
-6. Apply env override `OH_MY_OPENCODE_SLIM_PRESET` over config file preset.
-7. If preset exists, merge preset agents into `agents` so explicit root agents
-   still win (`deepMerge(preset, config.agents)`).
-8. Return merged config object.
+3. Parse JSONC via `stripJsonComments`; invalid JSON, schema errors, and read
+   errors are downgraded to warnings and ignored for that file.
+4. Merge user + project config with project precedence; nested deep merges are
+   applied for `agents`, `tmux`, `multiplexer`, `interview`, `sessionManager`,
+   `fallback`, and `council`.
+5. Migrate legacy `tmux` config into `multiplexer` when no explicit modern
+   multiplexer config exists.
+6. Override `config.preset` from `OH_MY_OPENCODE_SLIM_PRESET` when present.
+7. If the selected preset exists, merge `presets[preset]` into root
+   `config.agents` so root agent overrides still win.
+8. Warn on missing preset names instead of throwing.
 
-### Prompt discovery
+## Presets and runtime switching
 
-`loadAgentPrompt(agentName, preset?)`:
+- Static config presets live in `PluginConfig.presets` and are selected by
+  `config.preset` or `OH_MY_OPENCODE_SLIM_PRESET`.
+- `runtime-preset.ts` keeps `activeRuntimePreset` and
+  `previousRuntimePreset` at module scope so runtime preset changes survive
+  `client.config.update()`-triggered plugin reinitialization in the same process.
+- helpers:
+  - `setActiveRuntimePreset()` / `getActiveRuntimePreset()`
+  - `setActiveRuntimePresetWithPrevious()` / `getPreviousRuntimePreset()`
+  - `rollbackRuntimePreset()` for failed switches
 
-- Searches config directories for `not-my-opencode/` prompt roots.
-- Supports optional preset subdirectory lookup when `preset` is alphanumeric/
-  hyphen/underscore-safe.
-- For each agent:
-  - `<agent>.md` replacement prompt
-  - `<agent>_append.md` appended prompt
-- Read errors are warned and do not fail config load.
+## Schema surface (`schema.ts`)
 
-### Schema surface and compatibility
-
-- Agent override schema supports:
-  - `model` string or ordered fallback array (string or `{id, variant}`)
+- agent overrides support:
+  - `model` as string or ordered fallback array of strings / `{id, variant}`
   - `temperature`, `variant`, `options`, `skills`, `mcps`, `displayName`
-  - custom agent prompts (`prompt`, `orchestratorPrompt`) only.
-- Multiplexer:
-  - new unified `multiplexer` schema (`auto|tmux|zellij|none`)
-  - legacy `tmux` schema retained and migrated at load time.
-- Council:
-  - `CouncilConfigSchema` now normalizes deprecated `master*` fields into
-    `_legacyMasterModel` metadata for compatibility
-  - supports presets + timeout/retry/execution mode.
-- Fallback config supports per-agent chain arrays and retry/backoff values.
+  - `prompt` and `orchestratorPrompt` only for custom agents
+- top-level config includes:
+  - `preset`, `presets`, `manualPlan`, `fallback`
+  - `multiplexer` plus legacy `tmux`
+  - `interview`, `sessionManager`, `todoContinuation`, `council`
+- `CouncilConfigSchema` captures deprecated master-model fields into
+  compatibility metadata used by agent creation
 
-## Control flow and dependencies
+## Prompt and MCP helpers
 
-```text
-src/index.ts
-  └─> loadPluginConfig(directory)
-      ├─> Agent override application in src/agents/index.ts
-      ├─> MCP defaults/filters in src/config/agent-mcps.ts
-      ├─> Council session behavior in src/council/*
-      ├─> Fallback/session behavior in runtime hooks
-      └─> Multiplexer behavior in src/multiplexer/*
-```
+- `loadAgentPrompt()` searches `not-my-opencode/` prompt roots in config dirs,
+  with optional preset-scoped subdirectories, for `<agent>.md` and
+  `<agent>_append.md`
+- `agent-mcps.ts` provides default MCP allow-lists plus wildcard/exclusion
+  parsing for agent-specific overrides
+- `utils.ts` resolves alias-aware agent overrides and detects custom agent keys
 
-### Key collaborators
+## Files
 
-- `constants.ts`
-  - names/aliases, orchestratable lists, default models/timeouts/modes.
-- `agent-mcps.ts`
-  - `getAgentMcpList`, `parseList`, `getAvailableMcpNames`.
-- `utils.ts`
-  - alias resolution and custom-agent key discovery.
-- `loader.ts`
-  - config IO, deep merge, preset composition, env override, prompt loading.
-- `schema.ts`, `council-schema.ts`
-  - type/shape validation + transformation.
-
-## File structure
-
-- `index.ts` — exported config surface
-- `loader.ts` — load, merge, prompt resolution, tmux migration
-- `schema.ts` — plugin config + agent override schemas
-- `council-schema.ts` — council-specific and legacy compatibility schema
-- `constants.ts` — defaults, names, delegation rules, timeouts
-- `agent-mcps.ts` — MCP defaults and allow-list parsing
-- `utils.ts` — config helper methods
+- `loader.ts` — config discovery, parsing, deep merge, preset composition
+- `runtime-preset.ts` — active/previous runtime preset state
+- `schema.ts` — plugin config schema and type exports
+- `council-schema.ts` — council config schema + legacy normalization
+- `constants.ts` — agent names, default models, delegation/polling constants
+- `agent-mcps.ts` — MCP defaults and list parsing
+- `utils.ts` — override lookup and custom-agent discovery
+- `index.ts` — public re-export surface

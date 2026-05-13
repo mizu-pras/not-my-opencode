@@ -19,6 +19,8 @@ This codemap intentionally covers the plugin repository itself and excludes the 
 |---|---|
 | `package.json` | Package manifest, dependency graph, release scripts, published file list. |
 | `src/index.ts` | Main plugin bootstrap: wires agents, tools, MCPs, hooks, council/session managers, multiplexer session mirroring, interview/preset managers, task-session tracking, and config merge behavior. |
+| `src/tui.ts` | Optional OpenCode TUI sidebar entrypoint that renders plugin/version/config status plus live agent-model state. |
+| `src/tui-state.ts` | Best-effort snapshot store shared between the runtime plugin and TUI module for current agent model state. |
 | `src/cli/index.ts` | CLI entrypoint for installation/bootstrap workflows. |
 | `src/config/schema.ts` | Source-of-truth runtime config schema used by validation and schema generation. |
 | `scripts/generate-schema.ts` | Generates `not-my-opencode.schema.json` from the Zod config schema. |
@@ -27,7 +29,7 @@ This codemap intentionally covers the plugin repository itself and excludes the 
 
 | Directory | Responsibility Summary | Detailed Map |
 |---|---|---|
-| `src/` | Main application surface that composes plugin bootstrap, runtime model chains, hook orchestration, task-session aliasing, and installer-facing code. | [View Map](src/codemap.md) |
+| `src/` | Main application surface that composes plugin bootstrap, TUI/sidebar state, runtime model chains, hook orchestration, task-session aliasing, and installer-facing code. | [View Map](src/codemap.md) |
 | `src/agents/` | Agent factory layer for orchestrator and specialists, including prompt/model overrides, display-name normalization, MCP assignment, and permission shaping. | [View Map](src/agents/codemap.md) |
 | `src/cli/` | Installer, config editing, provider preset generation, and built-in skill installation. | [View Map](src/cli/codemap.md) |
 | `src/config/` | Configuration schema, layered loaders, preset merging, compatibility migrations, constant tables, and agent/MCP policy helpers. | [View Map](src/config/codemap.md) |
@@ -82,26 +84,35 @@ This codemap intentionally covers the plugin repository itself and excludes the 
 4. **Install/release path**
    - `src/cli/` configures host OpenCode instances.
    - `src/skills/` is copied into the user skill directory.
-   - `scripts/` validates generated schema, package completeness, and host-load behavior.
+   - `scripts/` generates schema and validates package completeness plus host-load behavior.
+
+5. **TUI/sidebar status path**
+   - `src/index.ts` records resolved agent models during config merge and foreground model updates.
+   - `src/tools/preset-manager.ts` keeps the snapshot aligned after `/preset` runtime switches.
+   - `src/tui-state.ts` persists the snapshot under XDG data storage.
+   - `src/tui.ts` polls that snapshot and renders sidebar status inside the host TUI.
 
 ## Key Cross-Module Integration Points
 
 - `src/index.ts` is the central composition root for nearly every runtime subsystem.
+- `src/tui.ts` and `src/tui-state.ts` form a narrow secondary entry surface for host-side UI integration without affecting plugin bootstrap semantics.
 - `src/config/` feeds `src/agents/`, session/delegation utilities, and MCP registration.
 - `src/cli/skills.ts` and `src/cli/custom-skills.ts` bridge install-time skill packaging with runtime permission policy.
 - Session/delegation utilities depend on `src/multiplexer/` and cooperate with helpers in `src/utils/` for depth tracking, result extraction, task output parsing, and alias state.
 - `src/tools/council.ts` delegates into `src/council/`.
 - `src/tools/preset-manager.ts` hooks command execution and updates runtime agent models from configured presets.
+- `src/tools/preset-manager.ts` and `src/index.ts` both write TUI snapshot state so sidebar data stays aligned with config-time and event-time model changes.
 - `src/hooks/task-session-manager/` depends on `src/utils/session-manager.ts` and `src/utils/task.ts` to support child-session reuse.
 - `src/hooks/filter-available-skills/` and agent permission logic rely on shared skill names from the CLI/config layer.
 - `src/interview/` hooks into plugin command/event surfaces exposed by `src/index.ts`.
 
 ## Root Assets
 
-- `README.md`: user-facing product overview, install docs, and agent descriptions.
+- `README.md`: slim root overview with install, quick config, feature matrix, and curated links into `docs/`.
 - `AGENTS.md`: agent operating conventions for this repository.
 - `biome.json`: formatting/lint policy.
 - `tsconfig.json`: TypeScript compiler settings.
+- `docs/`: focused user docs set for install/config/tools/workflows; root docs are intentionally compact.
 - `.slim/codemap.json`: codemap change-detection state for this repository.
 
 ## Recommended Reading Order

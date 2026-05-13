@@ -2,53 +2,40 @@
 
 ## Responsibility
 
-Provides reactive model fallback for foreground (interactive) sessions when
-rate-limit or provider-limit signals are observed in event streams.
+Provide reactive model fallback for foreground (interactive) sessions when
+rate-limit or quota-limit signals appear in OpenCode event traffic.
 
 ## Design
 
-- `index.ts` exports:
-  - `ForegroundFallbackManager`
-  - `isRateLimitError(error)`
-- Manager state is per-session maps for:
-  - active model (`sessionModel`)
-  - mapped agent (`sessionAgent`)
-  - attempted models (`sessionTried`)
-  - dedupe timestamp (`lastTrigger`)
-  - in-flight fallback lock (`inProgress`)
-- Rate-limit detection is regex based and also checks structured payload fields
-  (`message`, `statusCode`, `data.message`, `data.responseBody`).
-- Fallback selection uses `resolveChain(agentName, currentModel)` with ordered
-  priority:
-  1. exact agent chain (if configured)
-  2. no-chain if agent is known but unconfigured
-  3. infer from current model
-  4. flattened fallback across all chains
-- Re-submission uses `client.session.promptAsync` with last-user message parts and
-  parsed `{ providerID, modelID }` target.
+- `index.ts` exports `ForegroundFallbackManager` plus
+  `isRateLimitError(error)`.
+- Manager state stores per-session current model, inferred agent, tried models,
+  trigger dedupe, and in-flight fallback locks.
+- Rate-limit detection is regex-driven and inspects both top-level and nested
+  error payload fields.
+- Re-prompting uses runtime-only `client.session.promptAsync` with parsed
+  `{ providerID, modelID }` targets.
+- Abort is handled through `abortSessionWithTimeout(...)`, not raw
+  `session.abort()`.
 
 ## Flow
 
-1. `handleEvent` receives each plugin event.
-2. On `message.updated`, `session.error`, and retry `session.status`, it checks
-   rate-limit markers and calls `tryFallback(sessionID)` when matched.
-3. `subagent.session.created` updates session-to-agent mappings for better chain
-   resolution.
-4. `tryFallback(sessionID)` enforces:
-   - feature enablement flag,
-   - one-at-a-time lock,
-   - dedupe window (`DEDUP_WINDOW_MS = 5000`).
-5. It marks current model attempted, chooses next untried model from the chain,
-   fetches latest user message via `session.messages`, aborts the active prompt via
-   `session.abort()`, waits 500ms, and re-prompts with `promptAsync`.
-6. Success updates session model memory; failures log structured diagnostics.
-7. `session.deleted` cleanup removes all per-session bookkeeping to avoid memory
-   growth.
+1. `handleEvent` watches `message.updated`, `session.error`, retry-style
+   `session.status`, `subagent.session.created`, and `session.deleted`.
+2. Matching events capture model/agent metadata and trigger
+   `tryFallback(sessionID)` on rate-limit signals.
+3. `tryFallback` enforces feature enablement, one-at-a-time execution, and a 5s
+   per-session dedupe window.
+4. Chain resolution priority is: exact agent chain, empty if known agent has no
+   chain, inferred chain from current model, then flattened all-chain fallback
+   only when both agent and model are unknown.
+5. The manager fetches the last user message, aborts the stuck prompt with
+   timeout handling, waits 500ms, and re-queues the same user parts on the next
+   untried model via `promptAsync`.
+6. `session.deleted` removes all session bookkeeping.
 
 ## Integration
 
-- Wired through plugin-level `event` hook in `src/index.ts`.
-- Uses `ctx.client.session` APIs (`messages`, `abort`, `promptAsync`) and
-  depends on runtime fallback chains provided from configuration.
-- Designed as an interactive-session safety net when delegated/caller-side retry
-  logic is unavailable or too late.
+- Wired through plugin-level `event` handling in `src/index.ts`.
+- Depends on `ctx.client.session.messages`, `promptAsync`, and abort helpers,
+  plus configured fallback chains.

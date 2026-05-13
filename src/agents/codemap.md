@@ -2,107 +2,72 @@
 
 ## Responsibility
 
-`src/agents/` defines built-in specialists plus custom agents and converts
-configuration into OpenCode SDK registration data.
+`src/agents/` builds the runtime agent registry from loaded config and maps it
+into OpenCode SDK agent records.
 
-Responsibilities:
+- define built-in agent factories and orchestrator prompt text
+- materialize custom agents from `config.agents`
+- apply model/prompt/display-name overrides and permission defaults
+- expose disabled/enabled agent sets and final SDK registration payloads
 
-- Build orchestrator and specialist agent definitions from factory functions.
-- Resolve overrides for model, variant, temperature, options, prompt, and display
-  name.
-- Normalize/validate custom agent names and custom-orchestrator-facing aliases.
-- Compose permissions, MCP allow-lists, and visibility metadata for OpenCode.
+## Build pipeline (`index.ts`)
 
-## Core architecture
+`createAgents(config)`:
 
-### Construction flow (`createAgents`)
+1. Compute disabled agents from `config.disabled_agents` or
+   `DEFAULT_DISABLED_AGENTS`; protected names stay enabled.
+2. Disable `council` entirely when `config.council` is absent.
+3. Instantiate built-in subagents from `SUBAGENT_FACTORIES`, loading optional
+   prompt files via `loadAgentPrompt(name, config?.preset)`.
+4. Discover custom agent names from `config.agents` keys that are neither
+   built-ins nor aliases; reject unsafe names and skip entries with no `model`.
+5. Apply overrides:
+   - string `model` → `config.model`
+   - array `model` → `_modelArray` + clear `config.model` for runtime
+     resolution/failover
+   - merge `variant`, `temperature`, `options`, `displayName`
+6. Apply default permissions:
+   - read-only tool presets for `explorer`/`oracle`/`observer`
+   - no-delegation presets for `librarian`/`fixer`/`designer`
+   - `question` allow by default unless explicitly denied
+   - `council_session` allow only for `council`
+   - nested `skill` permissions from `cli/skills.ts`
+7. Apply compatibility fallbacks:
+   - `fixer` inherits librarian model when fixer is unconfigured
+   - `council` can inherit deprecated `council.master.model`
+8. Build orchestrator with disabled-agent-aware prompt sections.
+9. Rewrite `@agent` mentions to `@displayName` for orchestrator prompt and any
+   custom-agent `orchestratorPrompt` snippets; reject collisions/conflicts.
+10. Return `[orchestrator, ...subagents]`.
 
-1. Compute the disabled set via `getDisabledAgents()`:
-   - from `config.disabled_agents`
-   - with protected-agent guard (`orchestrator`, `councillor` never disabled)
-2. Build built-in subagents from `SUBAGENT_FACTORIES` (`SUBAGENT_NAMES`).
-3. Discover custom agent names from `config.agents` keys that are not built-ins
-   or aliases.
-4. Validate custom names (`/^[a-z][a-z0-9_-]*$/i`) and model presence:
-   skip with warning if `model` missing.
-5. Load prompt files for each agent:
-   - `<agent>.md` replacement prompt
-   - `<agent>_append.md` append prompt
-6. Apply override handling:
-   - string model → `config.model`
-   - array model → `agent._modelArray` and clear `config.model`
-   - merge `temperature`, `variant`, `options`, `displayName`.
-7. Apply permission defaults per agent (`applyDefaultPermissions`).
-8. Apply compatibility fallbacks:
-   - `fixer` may inherit `librarian` model when not explicitly configured.
-   - `council` may inherit deprecated `council.master.model` when no explicit
-     `council` override and default remains unresolved.
-9. Build orchestrator using prompt files + disabled-agent filtering.
-10. Normalize/collect display names and inject `@displayName` references into:
-    orchestrator prompt and all custom `orchestratorPrompt` snippets.
-11. Validate display-name collisions/agent-name conflicts.
-12. Return `[orchestrator, ...subagents]`.
+## Runtime model semantics
 
-### Runtime model behavior
+- `_modelArray` stores ordered fallback/runtime resolution entries.
+- `orchestrator` intentionally defaults to `model: undefined`; runtime hooks can
+  resolve from config/manual planning later.
+- Per-entry variants in `_modelArray` survive override normalization.
 
-- `_modelArray` is used as the ordered runtime failover chain when supplied.
-- `orchestrator` may start unresolved (`model` undefined) to allow downstream
-  runtime resolution.
-- `subagent` overrides preserve per-model variants inside `_modelArray` while
-  optionally keeping top-level `variant` as default fallback.
+## Registration semantics (`getAgentConfigs`)
 
-## Delegation and registration semantics
+- `orchestrator` → `mode: 'primary'`
+- normal specialists/custom agents → `mode: 'subagent'`
+- `council` → `mode: 'all'`
+- `councillor` → `mode: 'subagent'`, `hidden: true`
+- every registered agent gets MCP allow-lists from `getAgentMcpList(...)`
+- display-name aliases register as visible host keys while the internal name is
+  also registered but hidden
 
-- `getAgentConfigs(config)` converts definitions to SDK configs and sets:
-  - `orchestrator` → `mode: primary`
-  - built-in specialists → `mode: subagent`
-  - `council` → `mode: all`
-  - `councillor` → `mode: subagent`, `hidden: true`
-- If `displayName` is set:
-  - internal key remains registered but hidden
-  - host-facing key becomes normalized display name
+## Key integrations
 
-Permission defaults:
+- config inputs: `src/config/{loader,schema,utils,agent-mcps}.ts`
+- skill permission defaults: `src/cli/skills.ts`
+- runtime consumer: `src/index.ts` loads config, then calls
+  `createAgents()` / `getAgentConfigs()`
 
-- `question` defaults to `allow` unless existing explicit deny.
-- `council_session` defaults to `allow` only for `council`.
-- Nested `skill` permissions come from `getSkillPermissionsForAgent` and are
-  merged with existing permission maps.
+## Files
 
-## Capability and policy inputs
-
-- MCP allow-lists:
-  - `getAgentMcpList(name, config)` from `src/config/agent-mcps.ts`
-  - `agent-mcps` defaults in `src/config/agent-mcps.ts`
-- Agent metadata/aliases:
-  - `AGENT_ALIASES`, `SUBAGENT_NAMES`, `PROTECTED_AGENTS`
-  - `getAgentOverride`, `getCustomAgentNames` from `src/config/utils.ts`
-- Skills:
-  - `cli/skills.ts`
-
-## Flow and integration
-
-```text
-src/index.ts
-  └─> loadPluginConfig()
-      └─> createAgents(config) / getAgentConfigs(config)
-          └─> registration + runtime chat hooks
-
-  loadPluginConfig()
-    └─> prompt overrides + presets
-        └─> createAgents/create custom/orchestrator prompts
-```
-
-## Utilities and helpers
-
-- `isSubagent(name)` — type guard for subagent names.
-- `getDisabledAgents(config)` and `getEnabledAgentNames(config)`.
-- `resolvePrompt()` in `orchestrator.ts` centralizes replacement vs append behavior.
-
-## File structure
-
-- `index.ts` (agent registry, overrides, classification, custom agents)
-- `orchestrator.ts` (base prompts, prompt resolution, model-array type)
-- `council.ts`, `councillor.ts` (council tool orchestration + formatting)
+- `index.ts` — registry assembly, overrides, default permissions, display names
+- `orchestrator.ts` — orchestrator prompt builder and prompt replacement/append
+- `council.ts`, `councillor.ts` — council-facing agents
 - `explorer.ts`, `librarian.ts`, `oracle.ts`, `designer.ts`, `fixer.ts`,
-  `observer.ts` (specialist factory prompts/config)
+  `observer.ts` — specialist factory definitions

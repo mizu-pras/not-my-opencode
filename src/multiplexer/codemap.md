@@ -2,87 +2,67 @@
 
 ## Responsibility
 
-- Provide multiplexer-backed visualization for spawned subagent sessions.
-- Select and instantiate terminal backend based on config/env:
-  `auto`, `tmux`, `zellij`, or `none`.
-- Manage lifecycle of child session panes with lifecycle hooks from OpenCode
-  events plus health/polling fallback.
-- Keep pane cleanup safe and graceful (best-effort interrupt + kill).
+- Mirror child OpenCode sessions into tmux/zellij panes.
+- Choose the active backend from config + environment.
+- Keep pane lifecycle aligned with session events, with polling fallback for missed state transitions.
 
-## Design
+## Main modules
 
-- `types.ts`
-  - Defines shared abstractions:
-    - `Multiplexer` (`spawnPane`, `closePane`, `applyLayout`, `isAvailable`,
-      `isInsideSession`),
-    - `PaneResult`,
-    - `isServerRunning(serverUrl, timeoutMs?, maxAttempts?)` for readiness checks.
+- `factory.ts`: backend selection.
+- `session-manager.ts`: pane/session lifecycle manager.
+- `types.ts`: shared multiplexer interface and `/health` readiness probe.
+- `tmux/`, `zellij/`: concrete backends.
 
-- `factory.ts`
-  - Creates fresh multiplexer instance per call (no cache) so env-specific
-    state (`TMUX`, `ZELLIJ`) is captured accurately.
-  - `auto` mode resolves strictly by env vars and can become no-op `none`.
-  - Exposes `getAutoMultiplexerType` and `startAvailabilityCheck` for diagnostics.
+## Factory behavior
 
-- `tmux/index.ts` (`TmuxMultiplexer`)
-  - Detects binary lazily via `which/where` + `tmux -V`.
-  - `spawnPane` executes `opencode attach` in a split pane,
-    sets pane title, and applies layout.
-  - `closePane` sends `C-c`, waits briefly, then `kill-pane`.
-  - `applyLayout` handles main layout sizing and rebalance.
+- `getMultiplexer(config)` always creates a fresh instance; there is no cache.
+- `type: 'none'` disables multiplexing.
+- `type: 'auto'` chooses purely from env presence:
+  - `TMUX` -> tmux
+  - `ZELLIJ` -> zellij
+  - otherwise disabled
+- `startAvailabilityCheck(...)` is fire-and-forget; it only warms backend availability detection.
 
-- `zellij/index.ts` (`ZellijMultiplexer`)
-  - Detects and reuses/creates `opencode-agents` tab.
-  - First child uses default pane in that tab; additional children create panes.
-  - Falls back to first available pane ID heuristics and restores original tab
-    context around cross-tab operations.
-  - Layout configuration is accepted but effectively no-op (tool semantics differ
-    from tmux).
+## Session manager behavior
 
-- `session-manager.ts` (`MultiplexerSessionManager`)
-  - Initialized once from plugin context and config.
-  - Subscribes to lifecycle events:
-    - `session.created`: spawn pane if enabled and not already tracked,
-    - `session.status`: close on `idle`, respawn on `busy` when known,
-    - `session.deleted`: close pane and clear tracking.
-  - Tracks:
-    - active panes (`sessions` map),
-    - known sessions (`knownSessions`),
-    - in-flight spawns (`spawningSessions`).
-  - `respawnIfKnown` handles busy sessions that reappear after being closed.
-  - Polling fallback (`pollSessions`) is enabled when event coverage is incomplete.
-    It handles:
-    - idle detection,
-    - missing status grace period,
-    - max session lifetime timeout.
+- `MultiplexerSessionManager` is enabled only when:
+  - config type is not `none`,
+  - `getMultiplexer(...)` returned a backend,
+  - `multiplexer.isInsideSession()` is true.
+- Tracks three distinct states:
+  - `sessions`: active pane bindings with timestamps and last-seen state,
+  - `knownSessions`: child sessions eligible for later respawn,
+  - `spawningSessions` / `closingSessions`: concurrency guards.
 
-- `index.ts`
-  - Re-exports factory, manager, and implementations for external import.
+- `onSessionCreated(...)`:
+  - ignores root sessions or duplicates;
+  - records the child as known;
+  - waits for any in-flight close of the same session;
+  - checks OpenCode server health with `isServerRunning(serverUrl)`;
+  - spawns `opencode attach` in the backend pane;
+  - closes the pane immediately if it became stale before tracking finished;
+  - starts polling once at least one pane is active.
 
-## Flow
+- `onSessionStatus(...)`:
+  - `idle` -> close the pane but keep the session known for possible reuse;
+  - `busy` -> respawn a pane if the session is known but currently not tracked.
 
-- `src/index.ts` reads multiplexer config and creates
-  `MultiplexerSessionManager(ctx, config)`.
-- On startup `getMultiplexer(config)` determines backend and whether manager is
-  enabled (`type != none`, multiplexer present, running inside session).
-- On `session.created`:
-  - checks backend health via `isServerRunning(serverUrl)`,
-  - spawns a new pane,
-  - starts background polling.
-- On `session.status`:
-  - `idle` → `closeSession` (close pane + remove mapping),
-  - `busy` → `respawnIfKnown` if session was previously known.
-- On `session.deleted`:
-  - close and remove pane, clear known-session mapping.
-- `cleanup()` closes all panes and clears tracking maps.
+- `onSessionDeleted(...)`:
+  - closes the pane and removes the session from `knownSessions`.
+
+- Polling fallback:
+  - calls `client.session.status()` on `POLL_INTERVAL_BACKGROUND_MS`;
+  - closes panes when sessions become idle, stay missing for `SESSION_MISSING_GRACE_MS`, or exceed the 10-minute `SESSION_TIMEOUT_MS`;
+  - stops automatically once there are no tracked or closing panes.
+
+- `cleanup()`:
+  - stops polling,
+  - waits for in-flight closes,
+  - closes all remaining panes,
+  - clears tracked/known/spawning state.
 
 ## Integration
 
-- Integrates with OpenCode session events and server URL from plugin input.
-- Uses helper endpoints defined by `src/config` multiplexer settings:
-  `type`, `layout`, `main_pane_size`.
-- Implementations in `src/multiplexer/tmux` and `src/multiplexer/zellij` are used
-  through the shared abstraction.
-- Validation coverage:
-  - `src/multiplexer/factory.test.ts`
-  - `src/multiplexer/session-manager.test.ts`
+- Constructed by `src/index.ts` from plugin config and session event hooks.
+- Uses backend implementations only through the shared `Multiplexer` contract.
+- Exports deprecated alias `TmuxSessionManager = MultiplexerSessionManager` for compatibility.

@@ -2,106 +2,80 @@
 
 ## Responsibility
 
-`src/tools/` exposes plugin tooling and runtime command hooks used by OpenCode.
+`src/tools/` is the plugin-facing tool and command registration layer.
 
-- AST-aware search/replace via `ast-grep` stack.
-- Remote fetch/transform utility via `smartfetch` (`webfetch` tool).
-- Council orchestration via `createCouncilTool` (`council.ts`).
-- Child-session subtasks via `subtask` and `/subtask` (`subtask/`).
-- Runtime preset switching via `/preset` hook via `createPresetManager` (`preset-manager.ts`).
+- Exposes AST-aware search/replace as `ast_grep_search` and `ast_grep_replace`.
+- Exposes remote fetch/extraction as `webfetch`.
+- Exposes council execution as `council_session`.
+- Exposes delegated child-session work as `subtask`, `read_session`, and `/subtask`.
+- Exposes runtime model switching as the `/preset` command hook.
 
-It is the bridge between plugin runtime integration (`src/index.ts`) and the lower-level
-implementations in feature folders.
+## Export surface
 
-## Export surface (`src/tools/index.ts`)
+`src/tools/index.ts` re-exports:
 
-- `ast_grep_search`, `ast_grep_replace` from `./ast-grep`
-- `createWebfetchTool`, `WEBFETCH_DESCRIPTION`, and related types from `./smartfetch`
+- `ast_grep_search`, `ast_grep_replace`
 - `createCouncilTool`
-- `createSubtaskTool`, `createSubtaskCommandManager`, `createSubtaskState`, and
-  `createReadSessionTool` from `./subtask`
-- `createPresetManager` and `PresetManager` type
+- `createWebfetchTool`
+- `createSubtaskTool`, `createReadSessionTool`, `createSubtaskCommandManager`, `createSubtaskState`
+- `createPresetManager` and `PresetManager`
 
-## Design patterns
+## Design
 
-- **Factory-based registration:** each feature exposes a factory that returns an
-  executable/tool or handler object bound to plugin context.
-- **Clear boundaries:** all plugin lifecycle hooks are emitted from factory methods
-  (`handleCommandExecuteBefore`, `handleEvent`, `registerCommand`) rather than in tool
-  modules.
-- **Metadata-first output:** tool calls return text plus internal metadata writes when
-  possible (for richer UI surfaces).
+- **Factory registration:** every feature returns a `ToolDefinition` or command manager bound to plugin context.
+- **Hook/tool split:** slash-command registration/interception lives in manager factories, while pure tool execution stays in feature folders.
+- **Text-first responses:** tools return displayable text and optionally emit metadata for richer UI output.
 
-## Subsystems and data flow
+## Tool surfaces
 
-### Council tool path
+### `council.ts`
 
-- `createCouncilTool` defines `council_session`.
-- `execute` performs guarded invocation:
-  - validates `toolContext` and `sessionID`,
-  - only allows direct use by `agent: 'council'` (or missing agent for backward compatibility),
-  - calls `CouncilManager.runCouncil(prompt, preset, parentSessionId)`.
-- On success, appends a councillor response summary and normalized model list to output.
-- On failure, returns a concise error string.
-- Shows config deprecation warnings when `CouncilManager` exposes deprecated field metadata.
+- `createCouncilTool(ctx, councilManager)` registers `council_session`.
+- Guardrails:
+  - requires a `sessionID` in tool context,
+  - rejects non-`council` callers when `agent` is present,
+  - forwards `prompt`, optional `preset`, and parent session id to `CouncilManager.runCouncil(...)`.
+- Success output appends a footer with completed councillor count and short model labels.
+- Deprecated council config fields are surfaced as inline warnings instead of hard failures.
 
-### Preset-manager command path
+### `preset-manager.ts`
 
-- `createPresetManager(ctx, config)` returns:
-  - `registerCommand(opencodeConfig)`: injects `/preset` command definition if absent,
-  - `handleCommandExecuteBefore(input, output)`: intercepts `/preset` command handling.
-- Command behavior:
-  - no args → clear output and list available presets (`active` marker supported),
-  - single token arg → switch preset through `client.config.update(...)` with mapped agent overrides,
-  - multi-word arg → suggestion + no update.
-- Mapping logic converts plugin preset override format (`AgentOverrideConfig`) into runtime
-  SDK `agent` config (`model`, `temperature`, `variant`, `options`) and skips fields not
-  supported in runtime updates (`prompt`, `orchestratorPrompt`, `skills`, `mcps`,
-  `displayName`).
-- In-memory `activePreset` supports immediate status display and updates after successful switches.
+- Registers `/preset` if absent in host config.
+- Intercepts `/preset` before LLM handling.
+- Behavior:
+  - no args → list presets and active runtime preset,
+  - one token → call `client.config.update({ body: { agent } })` with mapped runtime-safe fields,
+  - multi-word arg → refuse and suggest the first token.
+- Tracks runtime preset state across plugin re-inits through `config/runtime-preset.ts` and records updated agent models for the TUI snapshot.
+- Reset path clears leaked agent overrides from the previous preset by reapplying config-file baselines where possible.
 
-### Subtask path
+### `subtask/`
 
-- `createSubtaskCommandManager` registers `/subtask` and asks the current
-  agent to call the `subtask` tool with the worker prompt and relevant files.
-- `createSubtaskTool` creates a real child session with `parentID`, injects
-  referenced files as synthetic Read-tool context, waits for the worker to
-  finish, returns `<subtask_summary>`, then aborts the child for cleanup.
-- `createReadSessionTool` lets a subtask worker read only the source session
-  that spawned it when the summary prompt lacks details.
-- `SubtaskState` marks child sessions so nested subtasks can be blocked and
-  session.deleted events can clear stale markers.
+- `/subtask` is a prompt-construction command that tells the active agent to call `subtask(...)`.
+- `subtask` creates a real child session, injects referenced files as synthetic Read-style text parts, waits for completion, extracts the child result, wraps it in `<subtask_summary>`, then aborts the child session.
+- `read_session` is only callable from marked subtask workers and only against the exact source parent session.
+- `SubtaskState` plus session event handling prevent nested subtasks and clean up stale worker markers.
 
-### Smartfetch path
+### `smartfetch/`
 
-- `createWebfetchTool` owns fetch orchestration, permission prompts, cache checks,
-  llms.txt probing, binary/text branching, and optional secondary-model post-processing.
-- `smartfetch` modules split work into:
-  - transport/policy (`network.ts`),
-  - cache + TTL semantics (`cache.ts`),
-  - output shaping (`utils.ts`),
-  - file-backed binaries (`binary.ts`),
-  - secondary-model summarization (`secondary-model.ts`),
-  - constants and types.
-- `webfetch` is always registered from `src/index.ts` as a public tool.
+- `createWebfetchTool` registers the public `webfetch` tool.
+- Surface supports:
+  - `format: text | markdown | html`,
+  - `extract_main`, `include_metadata`, `prefer_llms_txt`,
+  - bounded timeout,
+  - optional binary saving,
+  - optional prompt-driven secondary-model post-processing.
+- Execution owns permission prompts, URL normalization, llms.txt probing, cache/revalidation, redirect policy, binary/text branching, and final rendering.
 
-### AST-grep path
+### `ast-grep/`
 
-- `ast-grep` is split into CLI/CLI-discovery and tool-definition concerns.
-- `ast_grep_search`/`ast_grep_replace` execution calls into `runSg`, which handles
-  argument normalization, binary availability, timeout/error handling, and output truncation.
-- `src/tools/ast-grep/index.ts` re-exports tool definitions and utility helpers for
-  discoverability (`ensureCliAvailable`, `getAstGrepPath`, downloader/runtime checks).
+- `ast_grep_search` and `ast_grep_replace` are thin tool wrappers over `runSg(...)`.
+- Search surfaces `pattern`, `lang`, optional `paths`, `globs`, and `context`.
+- Replace surfaces `pattern`, `rewrite`, `lang`, optional `paths`/`globs`, and `dryRun` defaulting to preview mode.
+- The feature folder also exports CLI/bootstrap helpers for binary discovery and download.
 
-## Integration points in `src/index.ts`
+## Integration
 
-- Tool registration:
-  - `council` tools (only when `config.council` exists),
-  - `webfetch`,
-  - `subtask`, `read_session`,
-  - AST tools.
-- `presetManager` is initialized in plugin init and:
-  - calls `registerCommand` during config hook,
-  - handles command interception in `command.execute.before`.
-- `/preset` handling is explicitly user-facing (command hook), while webfetch and
-  council are tool-facing.
+- `src/index.ts` registers `webfetch`, AST-grep tools, `subtask`, and `read_session` unconditionally.
+- `src/index.ts` registers `council_session` only when council config is enabled.
+- `src/index.ts` wires `/preset` and `/subtask` through config hooks, command hooks, and session lifecycle events.
