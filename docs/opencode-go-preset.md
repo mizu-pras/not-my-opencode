@@ -1,7 +1,7 @@
 # OpenCode Go Preset
 
 `opencode-go` is a bundled generated preset for users who want to run the
-Pantheon agents through OpenCode Go models instead of the default OpenAI setup.
+specialist agents through OpenCode Go models instead of the default OpenAI setup.
 
 The installer generates both `openai` and `opencode-go` presets. OpenAI stays
 active by default unless you select OpenCode Go during install or switch to it

@@ -1,77 +1,43 @@
-# Tools & Capabilities
+# Tools
 
-Built-in tools available to agents beyond the standard file and shell operations.
+Plugin-provided tools beyond OpenCode's standard file, shell, and LSP tools.
 
-## apply_patch rescue
+## Web
 
-not-my-opencode only intercepts `apply_patch` before the native tool runs. It rewrites recoverable stale patches, canonizes safe tolerant matches against the real file when unicode/trim drift is the only mismatch, keeps the authored `new_lines` bytes intact, preserves the existing file EOL/final-newline state for updates, validates malformed patches strictly before helper execution, uses a conservative bounded LCS fallback, accumulates helper state when the same path appears in multiple `Update File` hunks, blocks `apply_patch` before native execution if any patch path falls outside the allowed root/worktree, and fails on ambiguity instead of guessing. It does not rewrite `edit` or `write` inputs.
+| Tool | Purpose |
+|---|---|
+| `webfetch` | Fetch docs/pages, extract main content, optionally prefer `llms.txt`. |
 
----
+`webfetch` blocks unapproved cross-origin redirects and returns cleaner markdown
+for docs/articles when possible.
 
-## Web Fetch
+## Code search
 
-Fetch remote pages with content extraction tuned for docs/static sites.
+| Tool | Purpose |
+|---|---|
+| `ast_grep_search` | AST-aware search across supported languages. |
+| `ast_grep_replace` | AST-aware replacement; dry-run by default. |
 
-| Tool | Description |
-|------|-------------|
-| `webfetch` | Fetch a URL, optionally prefer `llms.txt`, extract main content from HTML, include metadata, and optionally save binary responses |
+Use AST-grep when structure matters more than exact text.
 
-For HTML pages, `webfetch` uses Defuddle as the primary main-content
-extractor, then falls back to Mozilla Readability and finally the raw body when
-needed. This keeps docs, articles, and blog posts cleaner by removing navigation,
-sidebars, footers, and other boilerplate before converting to markdown.
+## Subtask
 
-`webfetch` blocks cross-origin redirects unless the requested URL or derived permission patterns explicitly allow them, and it can fall back to the raw fetched content when secondary-model summarization is unavailable.
+| Tool | Purpose |
+|---|---|
+| `/subtask <goal>` | Command that asks the current agent to spawn a bounded worker. |
+| `subtask` | Creates the worker session and returns a structured summary. |
+| `read_session` | Lets that worker read its source session when needed. |
 
----
+See [Subtask](subtask.md).
 
-## Code Search Tools
+## Patch rescue
 
-Fast, structural code search and refactoring — more powerful than plain text grep.
-
-| Tool | Description |
-|------|-------------|
-| `grep` | Fast content search using ripgrep |
-| `ast_grep_search` | AST-aware code pattern matching across 25 languages |
-| `ast_grep_replace` | AST-aware code refactoring with dry-run support |
-
-`ast_grep` understands code structure, so it can find patterns like "all arrow functions that return a JSX element" rather than relying on exact text matching.
-
----
-
-## Session Subtask
-
-Run a focused child worker session for a bounded task and return its summary to
-the caller.
-
-| Command / Tool | Description |
-|----------------|-------------|
-| `/subtask <goal>` | Ask the current agent to prepare and start a bounded worker for the requested task |
-| `subtask` | Creates a child orchestrator session and returns its structured summary |
-| `read_session` | Lets a subtask worker inspect the source session when needed context is missing |
-
-not-my-opencode creates a real child session with the current session as `parentID`, injects
-relevant file context, and asks the worker to complete only the requested task.
-The worker returns a `<subtask_summary>` with status, changes, files touched,
-validation, and follow-up notes. In tmux/zellij this appears like other child
-agent work: a pane can open for the worker and close after cleanup.
-
-See [Subtask](subtask.md) for the full workflow.
-
----
+`not-my-opencode` can repair some stale `apply_patch` inputs before OpenCode's
+native patch tool runs. It stays conservative: no ambiguous rewrites, no edits
+outside the allowed root/worktree, and no changes to unrelated tool inputs.
 
 ## Formatters
 
-OpenCode automatically formats files after they are written or edited, using language-specific formatters. No manual step needed.
-
-Includes Prettier, Biome, `gofmt`, `rustfmt`, `ruff`, and 20+ others.
-
-> See the [official OpenCode docs](https://opencode.ai/docs/formatters/#built-in) for the complete list.
-
----
-
-## Todo Continuation
-
-Auto-continue has its own guide now:
-
-- [Todo Continuation](todo-continuation.md) — controls, safety gates, behavior, and config
+OpenCode runs built-in formatters after file writes/edits when configured for the
+language. See the
+[OpenCode formatter docs](https://opencode.ai/docs/formatters/#built-in).

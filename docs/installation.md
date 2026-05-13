@@ -1,242 +1,97 @@
-# Installation Guide
+# Installation
 
-Complete installation instructions for not-my-opencode.
-
-## Table of Contents
-
-- [For Humans](#for-humans)
-- [For LLM Agents](#for-llm-agents)
-- [Troubleshooting](#troubleshooting)
-- [Uninstallation](#uninstallation)
-
----
-
-## For Humans
-
-### Quick Install
-
-Run the interactive installer:
+## Install
 
 ```bash
 bunx not-my-opencode@latest install
 ```
 
-Or use non-interactive mode:
+Non-interactive:
 
 ```bash
 bunx not-my-opencode@latest install --no-tui --skills=yes
 ```
 
-### Configuration Options
-
-The installer supports the following options:
-
-| Option | Description |
-|--------|-------------|
-| `--skills=yes|no` | Install recommended and bundled skills (default: yes) |
-| `--preset=<name>` | Active generated config preset: `openai` or `opencode-go` (default: `openai`) |
-| `--no-tui` | Non-interactive mode |
-| `--dry-run` | Simulate install without writing files |
-| `--reset` | Force overwrite of existing configuration |
-
-### Non-Destructive Behavior
-
-By default, the installer is non-destructive. If a `not-my-opencode.json` configuration file already exists, the installer will **not** overwrite it. Instead, it will display a message:
-
-```
-[i] Configuration already exists at ~/.config/opencode/not-my-opencode.json. Use --reset to overwrite.
-```
-
-To force overwrite of your existing configuration, use the `--reset` flag:
+Use the OpenCode Go preset:
 
 ```bash
-bunx not-my-opencode@latest install --reset
+bunx not-my-opencode@latest install --preset=opencode-go
 ```
 
-**Note:** When using `--reset`, the installer creates a `.bak` backup file before overwriting, so your previous configuration is preserved.
+## Options
 
-### After Installation
+| Option | Meaning |
+|---|---|
+| `--skills=yes|no` | Install recommended and bundled skills. Default: `yes`. |
+| `--preset=<name>` | Active generated preset: `openai` or `opencode-go`. |
+| `--no-tui` | Non-interactive mode. |
+| `--dry-run` | Show planned changes without writing files. |
+| `--reset` | Overwrite existing plugin config after making a backup. |
 
-The installer generates both OpenAI and OpenCode Go presets, with OpenAI active by default. OpenAI uses `gpt-5.5` for orchestrator/oracle/council, `gpt-5.4` for design and implementation, and `gpt-5.4-mini` for read-heavy scouting and visual analysis. To make OpenCode Go active during install, run `bunx not-my-opencode@latest install --preset=opencode-go`. That preset uses GLM-5.1 for Orchestrator, so the installer also enables Observer with `opencode-go/kimi-k2.6` for visual analysis. To switch providers later or build a mixed setup, use **[Configuration Reference](configuration.md)** for the full option reference and the preset docs for copyable examples.
+## What the installer writes
 
-Then:
+- Adds this plugin to `~/.config/opencode/opencode.json`.
+- Attempts to add the companion TUI entry to `~/.config/opencode/tui.json`.
+- Writes `~/.config/opencode/not-my-opencode.json` unless it already exists.
+- Installs skills when `--skills=yes`.
+- Enables OpenCode LSP integration when no explicit `lsp` setting exists.
+- Warms OpenCode's plugin cache for `bunx` installs.
+
+Existing `not-my-opencode.json` files are preserved by default. Use `--reset` to
+replace them; a `.bak` file is created first.
+
+## After install
 
 ```bash
 opencode auth login
-# Select your provider and complete OAuth flow
-```
-
-```bash
 opencode models --refresh
+opencode
 ```
 
-Open your generated config at `~/.config/opencode/not-my-opencode.json`
-and adjust models if needed.
-
-Then run OpenCode and verify the agents:
+Then verify inside OpenCode:
 
 ```text
 ping all agents
 ```
 
-> **💡 Tip: Models are fully customizable.** The installer sets sensible defaults, but you can assign *any* model to *any* agent. Edit `~/.config/opencode/not-my-opencode.json` (or `.jsonc` for comments support) to override models, adjust reasoning effort, or disable agents entirely.
+Edit models and permissions in:
 
-### Alternative: Ask Any Coding Agent
-
-Paste this into Claude Code, AmpCode, Cursor, or any coding agent:
-
+```text
+~/.config/opencode/not-my-opencode.json
 ```
-Install and configure by following the instructions here:
+
+## For coding agents
+
+Use this prompt:
+
+```text
+Install and configure not-my-opencode from:
 https://raw.githubusercontent.com/mizu-pras/not-my-opencode/refs/heads/master/README.md
 ```
 
----
-
-## For LLM Agents
-
-If you're an LLM Agent helping set up not-my-opencode, follow these steps.
-
-### Step 1: Check OpenCode Installation
-
-```bash
-opencode --version
-```
-
-If not installed, direct the user to https://opencode.ai/docs first.
-
-### Step 2: Run the Installer
-
-The installer generates OpenAI and OpenCode Go presets, with OpenAI active by default:
-
-```bash
-bunx not-my-opencode@latest install --no-tui --skills=yes
-```
-
-**Examples:**
-```bash
-# Interactive install (may prompt for optional follow-up actions)
-bunx not-my-opencode@latest install
-
-# Non-interactive with default skills
-bunx not-my-opencode@latest install --no-tui --skills=yes
-
-# Make the generated OpenCode Go preset active
-bunx not-my-opencode@latest install --preset=opencode-go
-
-# Non-interactive without skills
-bunx not-my-opencode@latest install --no-tui --skills=no
-
-# Force overwrite existing configuration
-bunx not-my-opencode@latest install --reset
-```
-
-The installer automatically:
-- Adds the plugin to `~/.config/opencode/opencode.json`
-- Attempts to add the companion TUI plugin entry to `~/.config/opencode/tui.json`
-- Disables default OpenCode agents
-- Enables OpenCode LSP integration when no explicit `lsp` setting exists
-- Generates agent model mappings in `~/.config/opencode/not-my-opencode.json` (or `.jsonc`)
-
-### Step 3: Authenticate with Providers
-
-Ask user to run the following command. Don't run it yourself, it requires user interaction.
-
-```bash
-opencode auth login
-# Select your provider and complete OAuth flow
-```
-
-### Step 4: Verify Installation
-
-Ask the user to:
-
-1. Authenticate: `opencode auth login`
-2. Refresh models: `opencode models --refresh`
-3. Start OpenCode: `opencode`
-4. Run: `ping all agents`
-
-Verify all agents respond successfully.
-
-**Crucial Advice for the User:**
-- They can easily assign **different models to different agents** by editing `~/.config/opencode/not-my-opencode.json` (or `.jsonc`).
-- If they want to add a different provider later (OpenCode Go, Kimi, GitHub Copilot, ZAI), they can update this file manually. See **[Configuration Reference](configuration.md)** and the preset docs for examples.
-- Read the generated `~/.config/opencode/not-my-opencode.json` (or `.jsonc`) file to understand the current configuration.
-
----
+Do not run `opencode auth login` for the user; it is interactive.
 
 ## Troubleshooting
 
-### Installer Fails
+Check the installer help:
 
-Check the expected config format:
 ```bash
 bunx not-my-opencode@latest install --help
 ```
 
-Then manually create the config files at:
-- `~/.config/opencode/not-my-opencode.json` (or `.jsonc`)
+Run diagnostics from a project root:
 
-### Configuration Already Exists
-
-If the installer reports that the configuration already exists, you have two options:
-
-1. **Keep existing config**: The installer will skip the configuration step and continue with other operations (like adding the plugin or installing skills).
-
-2. **Reset configuration**: Use `--reset` to overwrite:
-   ```bash
-   bunx not-my-opencode@latest install --reset
-   ```
-   A `.bak` backup file will be created automatically.
-
-### Agents Not Responding
-
-1. Check your authentication:
-   ```bash
-   opencode auth status
-   ```
-
-2. From your project root, verify your config file exists and is valid:
-   ```bash
-   bunx not-my-opencode@latest doctor
-   ```
-
-3. Check that your provider is configured in `~/.config/opencode/opencode.json`
-
-### Authentication Issues
-
-If providers are not working:
-
-1. Check your authentication status:
-   ```bash
-   opencode auth status
-   ```
-
-2. Re-authenticate if needed:
-   ```bash
-   opencode auth login
-   ```
-
-3. Verify your config file has the correct provider configuration:
-   ```bash
-   cat ~/.config/opencode/not-my-opencode.json
-   ```
-
-### Editor Validation
-
-Add a `$schema` reference to your config for autocomplete and inline validation:
-
-```jsonc
-{
-  "$schema": "https://unpkg.com/not-my-opencode@latest/not-my-opencode.schema.json",
-  // your config...
-}
+```bash
+bunx not-my-opencode@latest doctor
 ```
 
-Works in VS Code, Neovim (with `jsonls`), and any editor that supports JSON Schema. Catches typos and wrong nesting immediately.
+Check auth:
 
-### Tmux Integration Not Working
+```bash
+opencode auth status
+```
 
-Make sure you're running OpenCode with the `--port` flag and the port matches your `OPENCODE_PORT` environment variable:
+For tmux/zellij panes, start OpenCode with a port:
 
 ```bash
 tmux
@@ -244,24 +99,30 @@ export OPENCODE_PORT=4096
 opencode --port 4096
 ```
 
-See the [Multiplexer Integration Guide](multiplexer-integration.md) for more details.
+## Schema
 
----
+Add this to config files for editor validation:
 
-## Uninstallation
+```jsonc
+{
+  "$schema": "https://unpkg.com/not-my-opencode@latest/not-my-opencode.schema.json"
+}
+```
 
-1. **Remove the plugin from your OpenCode configs**:
+## Uninstall
 
-   Edit `~/.config/opencode/opencode.json` and `~/.config/opencode/tui.json`,
-   then remove `"not-my-opencode"` from each `plugin` array where present.
+1. Remove `not-my-opencode` from the `plugin` array in:
+   - `~/.config/opencode/opencode.json`
+   - `~/.config/opencode/tui.json`
+2. Remove config files if desired:
 
-2. **Remove configuration files (optional)**:
    ```bash
    rm -f ~/.config/opencode/not-my-opencode.json
    rm -f ~/.config/opencode/not-my-opencode.json.bak
    ```
 
-3. **Remove skills (optional)**:
+3. Remove installed skills if desired:
+
    ```bash
    npx skills remove agent-browser
    rm -rf ~/.config/opencode/skills/simplify
