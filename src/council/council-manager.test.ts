@@ -50,6 +50,16 @@ function createMockContext(overrides?: {
   } as any;
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function createTestCouncilConfig(overrides?: {
   presets?: Record<string, Record<string, { model: string; variant?: string }>>;
   default_preset?: string;
@@ -374,6 +384,87 @@ describe('CouncilManager', () => {
 
       // Should abort 2 councillors
       expect(ctx.client.session.abort).toHaveBeenCalledTimes(2);
+    });
+
+    test('waits for councillor abort before returning result', async () => {
+      const abortDeferred = createDeferred<unknown>();
+      let settled = false;
+      const ctx = createMockContext({
+        sessionMessagesResult: {
+          data: [
+            {
+              info: { role: 'assistant' },
+              parts: [{ type: 'text', text: 'Response' }],
+            },
+          ],
+        },
+      });
+      ctx.client.session.abort = mock(() => abortDeferred.promise);
+      const config: PluginConfig = {
+        council: {
+          presets: {
+            default: {
+              alpha: { model: 'openai/gpt-5.4-mini' },
+            },
+          },
+        },
+      } as any;
+      const manager = new CouncilManager(ctx, config, undefined);
+
+      const runPromise = manager
+        .runCouncil('test prompt', undefined, 'parent-session-id')
+        .then((result) => {
+          settled = true;
+          return result;
+        });
+
+      await Promise.resolve();
+
+      expect(settled).toBe(false);
+
+      abortDeferred.resolve({});
+      const result = await runPromise;
+
+      expect(result.success).toBe(true);
+      expect(ctx.client.session.abort).toHaveBeenCalledWith({
+        path: { id: 'test-session-1' },
+      });
+    });
+
+    test('cleans depth tracking even when councillor abort fails', async () => {
+      const ctx = createMockContext({
+        sessionMessagesResult: {
+          data: [
+            {
+              info: { role: 'assistant' },
+              parts: [{ type: 'text', text: 'Response' }],
+            },
+          ],
+        },
+      });
+      ctx.client.session.abort = mock(async () => {
+        throw new Error('abort failed');
+      });
+      const tracker = new SubagentDepthTracker();
+      const config: PluginConfig = {
+        council: {
+          presets: {
+            default: {
+              alpha: { model: 'openai/gpt-5.4-mini' },
+            },
+          },
+        },
+      } as any;
+      const manager = new CouncilManager(ctx, config, tracker);
+
+      const result = await manager.runCouncil(
+        'test prompt',
+        undefined,
+        'parent-session-id',
+      );
+
+      expect(result.success).toBe(true);
+      expect(tracker.getDepth('test-session-1')).toBe(0);
     });
 
     test('handles councillor with invalid model format', async () => {

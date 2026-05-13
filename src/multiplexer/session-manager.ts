@@ -60,6 +60,7 @@ export class MultiplexerSessionManager {
   private sessions = new Map<string, TrackedSession>();
   private knownSessions = new Map<string, KnownSession>();
   private spawningSessions = new Set<string>();
+  private spawnTokens = new Map<string, symbol>();
   private closingSessions = new Map<string, Promise<void>>();
   private pollInterval?: ReturnType<typeof setInterval>;
   private enabled = false;
@@ -117,6 +118,8 @@ export class MultiplexerSessionManager {
     });
 
     this.spawningSessions.add(sessionId);
+    const spawnToken = Symbol(sessionId);
+    this.spawnTokens.set(sessionId, spawnToken);
 
     try {
       const serverRunning = await isServerRunning(this.serverUrl);
@@ -152,6 +155,7 @@ export class MultiplexerSessionManager {
       if (!paneResult.success || !paneResult.paneId) return;
 
       if (
+        this.spawnTokens.get(sessionId) !== spawnToken ||
         !this.knownSessions.has(sessionId) ||
         this.closingSessions.has(sessionId)
       ) {
@@ -186,7 +190,10 @@ export class MultiplexerSessionManager {
 
       this.startPolling();
     } finally {
-      this.spawningSessions.delete(sessionId);
+      if (this.spawnTokens.get(sessionId) === spawnToken) {
+        this.spawnTokens.delete(sessionId);
+        this.spawningSessions.delete(sessionId);
+      }
     }
   }
 
@@ -343,6 +350,8 @@ export class MultiplexerSessionManager {
     if (!known) return;
 
     this.spawningSessions.add(sessionId);
+    const spawnToken = Symbol(sessionId);
+    this.spawnTokens.set(sessionId, spawnToken);
 
     try {
       const serverRunning = await isServerRunning(this.serverUrl);
@@ -382,6 +391,7 @@ export class MultiplexerSessionManager {
       if (!paneResult.success || !paneResult.paneId) return;
 
       if (
+        this.spawnTokens.get(sessionId) !== spawnToken ||
         !this.knownSessions.has(sessionId) ||
         this.closingSessions.has(sessionId)
       ) {
@@ -416,7 +426,10 @@ export class MultiplexerSessionManager {
 
       this.startPolling();
     } finally {
-      this.spawningSessions.delete(sessionId);
+      if (this.spawnTokens.get(sessionId) === spawnToken) {
+        this.spawnTokens.delete(sessionId);
+        this.spawningSessions.delete(sessionId);
+      }
     }
   }
 
@@ -462,6 +475,7 @@ export class MultiplexerSessionManager {
 
     this.knownSessions.clear();
     this.spawningSessions.clear();
+    this.spawnTokens.clear();
     this.closingSessions.clear();
 
     log('[multiplexer-session-manager] cleanup complete');

@@ -181,6 +181,8 @@ Do not spawn another subtask.`;
           } catch {
             // Keep the subtask marker if abort fails; session.deleted cleanup
             // will remove it when OpenCode eventually deletes the session.
+          } finally {
+            depthTracker?.cleanup(childSessionID);
           }
         }
       }

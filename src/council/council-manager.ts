@@ -18,6 +18,7 @@ import {
 import type { CouncillorConfig, CouncilResult } from '../config/council-schema';
 import { log } from '../utils/logger';
 import {
+  abortSessionWithTimeout,
   extractSessionResult,
   type PromptBody,
   parseModelReference,
@@ -303,7 +304,12 @@ export class CouncilManager {
       return extraction.text;
     } finally {
       if (sessionId) {
-        this.client.session.abort({ path: { id: sessionId } }).catch(() => {});
+        await abortSessionWithTimeout(this.client, sessionId).catch((err) => {
+          log('[council-manager] Failed to abort councillor session', {
+            sessionId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
         if (this.depthTracker) {
           this.depthTracker.cleanup(sessionId);
         }

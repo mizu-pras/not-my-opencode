@@ -634,6 +634,10 @@ describe('MultiplexerSessionManager', () => {
       await createPromise;
 
       expect(mockMultiplexer.spawnPane).toHaveBeenCalledTimes(2);
+      expect(mockMultiplexer.closePane).toHaveBeenCalledWith('p-cleanup');
+      expect((manager as any).sessions.get('cleanup-spawn').paneId).toBe(
+        '%mock-pane',
+      );
     });
   });
 });

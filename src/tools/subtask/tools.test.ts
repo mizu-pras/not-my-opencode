@@ -103,6 +103,7 @@ describe('subtask tool', () => {
         path: { id: 'ses_new' },
         query: { directory },
       });
+      expect(state.isSubtaskSession('ses_new')).toBe(false);
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }
@@ -167,6 +168,7 @@ describe('subtask tool', () => {
       const sessionMessages = mock(async () => ({ data: [] }));
       const sessionAbort = mock(async () => ({}));
       const state = createSubtaskState();
+      const depthTracker = new SubagentDepthTracker();
       const tool = createSubtaskTool(
         {
           directory,
@@ -180,6 +182,7 @@ describe('subtask tool', () => {
           },
         } as any,
         state,
+        depthTracker,
       );
 
       await expect(
@@ -194,7 +197,90 @@ describe('subtask tool', () => {
         query: { directory },
       });
       expect(state.isSubtaskSession('ses_new')).toBe(false);
+      expect(depthTracker.getDepth('ses_new')).toBe(0);
       expect(sessionMessages).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test('cleans depth tracking when worker completes successfully', async () => {
+    const directory = makeTempDir();
+    try {
+      const sessionCreate = mock(async () => ({ data: { id: 'ses_new' } }));
+      const sessionPrompt = mock(async () => ({}));
+      const sessionMessages = mock(async () => ({
+        data: [
+          {
+            info: { role: 'assistant' },
+            parts: [{ type: 'text', text: 'done' }],
+          },
+        ],
+      }));
+      const sessionAbort = mock(async () => ({}));
+      const depthTracker = new SubagentDepthTracker();
+      const tool = createSubtaskTool(
+        {
+          directory,
+          client: {
+            session: {
+              abort: sessionAbort,
+              create: sessionCreate,
+              messages: sessionMessages,
+              prompt: sessionPrompt,
+            },
+          },
+        } as any,
+        createSubtaskState(),
+        depthTracker,
+      );
+
+      await tool.execute({ prompt: 'Complete me' }, {
+        sessionID: 'ses_old',
+      } as any);
+
+      expect(depthTracker.getDepth('ses_new')).toBe(0);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test('keeps worker marker but cleans depth when abort fails', async () => {
+    const directory = makeTempDir();
+    try {
+      const state = createSubtaskState();
+      const depthTracker = new SubagentDepthTracker();
+      const tool = createSubtaskTool(
+        {
+          directory,
+          client: {
+            session: {
+              abort: mock(async () => {
+                throw new Error('abort failed');
+              }),
+              create: mock(async () => ({ data: { id: 'ses_new' } })),
+              messages: mock(async () => ({
+                data: [
+                  {
+                    info: { role: 'assistant' },
+                    parts: [{ type: 'text', text: 'done' }],
+                  },
+                ],
+              })),
+              prompt: mock(async () => ({})),
+            },
+          },
+        } as any,
+        state,
+        depthTracker,
+      );
+
+      await tool.execute({ prompt: 'Complete me' }, {
+        sessionID: 'ses_old',
+      } as any);
+
+      expect(state.isSubtaskSession('ses_new')).toBe(true);
+      expect(depthTracker.getDepth('ses_new')).toBe(0);
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }
