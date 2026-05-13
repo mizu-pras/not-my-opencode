@@ -1,17 +1,11 @@
 import type { Plugin } from '@opencode-ai/plugin';
 import { createAgents, getAgentConfigs, getDisabledAgents } from './agents';
 import { buildOrchestratorPrompt } from './agents/orchestrator';
-import {
-  type AgentOverrideConfig,
-  deepMerge,
-  loadPluginConfig,
-  type MultiplexerConfig,
-} from './config';
-import { parseList } from './config/agent-mcps';
-import { AGENT_ALIASES } from './config/constants';
+import { deepMerge, loadPluginConfig, type MultiplexerConfig } from './config';
+import { buildRuntimeChains } from './config/model-resolution';
+import { configureOpenCodeConfig } from './config/plugin-config-hook';
 import {
   getActiveRuntimePreset,
-  getPreviousRuntimePreset,
   setActiveRuntimePreset,
 } from './config/runtime-preset';
 import { CouncilManager } from './council';
@@ -117,7 +111,6 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
   let agentDefs: ReturnType<typeof createAgents>;
   let agents: ReturnType<typeof getAgentConfigs>;
   let mcps: ReturnType<typeof createBuiltinMcps>;
-  let modelArrayMap: Record<string, Array<{ id: string; variant?: string }>>;
   let runtimeChains: Record<string, string[]>;
   let multiplexerConfig: MultiplexerConfig;
   let multiplexerEnabled: boolean;
@@ -176,44 +169,11 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
     agentDefs = createAgents(config);
     agents = getAgentConfigs(config);
 
-    // Build a map of agent name → priority model array for runtime
-    // fallback. Populated when the user configures model as an array in
-    // their plugin config.
-    modelArrayMap = {} as Record<
-      string,
-      Array<{ id: string; variant?: string }>
-    >;
-    for (const agentDef of agentDefs) {
-      if (agentDef._modelArray && agentDef._modelArray.length > 0) {
-        modelArrayMap[agentDef.name] = agentDef._modelArray;
-      }
-    }
     // Build runtime fallback chains for all foreground agents. Each chain
     // is an ordered list of model strings to try when the current model is
     // rate-limited. Seeds from _modelArray entries (when the user
     // configures model as an array), then appends fallback.chains entries.
-    runtimeChains = {} as Record<string, string[]>;
-    for (const agentDef of agentDefs) {
-      if (agentDef._modelArray?.length) {
-        runtimeChains[agentDef.name] = agentDef._modelArray.map((m) => m.id);
-      }
-    }
-    if (config.fallback?.enabled !== false) {
-      const chains =
-        (config.fallback?.chains as Record<string, string[] | undefined>) ?? {};
-      for (const [agentName, chainModels] of Object.entries(chains)) {
-        if (!chainModels?.length) continue;
-        const existing = runtimeChains[agentName] ?? [];
-        const seen = new Set(existing);
-        for (const m of chainModels) {
-          if (!seen.has(m)) {
-            seen.add(m);
-            existing.push(m);
-          }
-        }
-        runtimeChains[agentName] = existing;
-      }
-    }
+    runtimeChains = buildRuntimeChains(agentDefs, config.fallback);
 
     // Parse multiplexer config with defaults
     multiplexerConfig = {
@@ -398,337 +358,21 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
     mcp: mcps,
 
     config: async (opencodeConfig: Record<string, unknown>) => {
-      // Only set default_agent if not already configured by the user
-      // and the plugin config doesn't explicitly disable this behavior
-      if (
-        config.setDefaultAgent !== false &&
-        !(opencodeConfig as { default_agent?: string }).default_agent
-      ) {
-        (opencodeConfig as { default_agent?: string }).default_agent =
-          'orchestrator';
-      }
-
-      // Merge Agent configs — per-agent shallow merge to preserve
-      // user-supplied fields (e.g. tools, permission) from opencode.json
-      if (!opencodeConfig.agent) {
-        opencodeConfig.agent = { ...agents };
-      } else {
-        for (const [name, pluginAgent] of Object.entries(agents)) {
-          const existing = (opencodeConfig.agent as Record<string, unknown>)[
-            name
-          ] as Record<string, unknown> | undefined;
-          if (existing) {
-            // Shallow merge: plugin defaults first, user overrides win
-            (opencodeConfig.agent as Record<string, unknown>)[name] = {
-              ...pluginAgent,
-              ...existing,
-            };
-          } else {
-            (opencodeConfig.agent as Record<string, unknown>)[name] = {
-              ...pluginAgent,
-            };
-          }
-        }
-      }
-      const configAgent = opencodeConfig.agent as Record<string, unknown>;
-
-      // Model resolution for foreground agents: combine _modelArray
-      // entries with fallback.chains config, then pick the first model in
-      // the effective array for startup-time selection.
-      //
-      // Runtime failover on API errors (e.g. rate limits
-      // mid-conversation) is handled separately by
-      // ForegroundFallbackManager via the event hook.
-      const fallbackChainsEnabled = config.fallback?.enabled !== false;
-      const fallbackChains = fallbackChainsEnabled
-        ? ((config.fallback?.chains as Record<string, string[] | undefined>) ??
-          {})
-        : {};
-
-      // Build effective model arrays: seed from _modelArray, then append
-      // fallback.chains entries so the resolver considers the full chain
-      // when picking the best available provider at startup.
-      const effectiveArrays: Record<
-        string,
-        Array<{ id: string; variant?: string }>
-      > = {};
-
-      for (const [agentName, models] of Object.entries(modelArrayMap)) {
-        effectiveArrays[agentName] = [...models];
-      }
-
-      for (const [agentName, chainModels] of Object.entries(fallbackChains)) {
-        if (!chainModels || chainModels.length === 0) continue;
-
-        if (!effectiveArrays[agentName]) {
-          // Agent has no _modelArray — seed from its current string model
-          // so the fallback chain appends after it rather than replacing
-          // it.
-          const entry = configAgent[agentName] as
-            | Record<string, unknown>
-            | undefined;
-          const currentModel =
-            typeof entry?.model === 'string' ? entry.model : undefined;
-          effectiveArrays[agentName] = currentModel
-            ? [{ id: currentModel }]
-            : [];
-        }
-
-        const seen = new Set(effectiveArrays[agentName].map((m) => m.id));
-        for (const chainModel of chainModels) {
-          if (!seen.has(chainModel)) {
-            seen.add(chainModel);
-            effectiveArrays[agentName].push({ id: chainModel });
-          }
-        }
-      }
-
-      if (Object.keys(effectiveArrays).length > 0) {
-        for (const [agentName, modelArray] of Object.entries(effectiveArrays)) {
-          if (modelArray.length === 0) continue;
-
-          // Use the first model in the effective array. Not all providers
-          // require entries in opencodeConfig.provider — some are loaded
-          // automatically by opencode (e.g. github-copilot, openrouter).
-          // We cannot distinguish these from truly unconfigured providers
-          // at config-hook time, so we cannot gate on the provider config
-          // keys. Runtime failover is handled separately by
-          // ForegroundFallbackManager.
-          const chosen = modelArray[0];
-          const entry = configAgent[agentName] as
-            | Record<string, unknown>
-            | undefined;
-          if (entry) {
-            entry.model = chosen.id;
-            if (chosen.variant) {
-              entry.variant = chosen.variant;
-            }
-          } else {
-            // Agent exists in slim but not in opencodeConfig.agent —
-            // create entry
-            (configAgent as Record<string, unknown>)[agentName] = {
-              model: chosen.id,
-              ...(chosen.variant ? { variant: chosen.variant } : {}),
-            };
-          }
-          log('[plugin] resolved model from array', {
-            agent: agentName,
-            model: chosen.id,
-            variant: chosen.variant,
-          });
-        }
-      }
-
-      // Runtime preset override: if /preset switched to a runtime preset,
-      // override the model/variant/temperature from the preset's agent
-      // config. This runs after the normal model resolution because the
-      // config() hook re-runs with stale modelArrayMap after dispose(),
-      // but the runtime preset data is in the captured `config` closure.
-      const runtimePresetName = getActiveRuntimePreset();
-      if (runtimePresetName && config.presets?.[runtimePresetName]) {
-        const runtimePreset = config.presets[runtimePresetName];
-        for (const [agentName, override] of Object.entries(runtimePreset)) {
-          // Resolve legacy alias keys (e.g. "explore" → "explorer")
-          // so presets using aliases work in this path.
-          const resolvedName = AGENT_ALIASES[agentName] ?? agentName;
-          const entry = configAgent[resolvedName] as
-            | Record<string, unknown>
-            | undefined;
-          if (!entry) continue;
-
-          if (typeof override.model === 'string') {
-            entry.model = override.model;
-          } else if (
-            Array.isArray(override.model) &&
-            override.model.length > 0
-          ) {
-            const first = override.model[0];
-            entry.model = typeof first === 'string' ? first : first.id;
-            // Extract inline variant from array-form model entry
-            if (typeof first !== 'string' && first.variant) {
-              entry.variant = first.variant;
-            }
-          }
-          // Explicitly set or clear scalar fields so switching from
-          // Preset A (which sets a field) to Preset B (which doesn't)
-          // doesn't leave stale values behind.
-          if (typeof override.variant === 'string') {
-            entry.variant = override.variant;
-          } else if ('variant' in override) {
-            delete entry.variant;
-          }
-          if (typeof override.temperature === 'number') {
-            entry.temperature = override.temperature;
-          } else if ('temperature' in override) {
-            delete entry.temperature;
-          }
-          if (
-            override.options &&
-            typeof override.options === 'object' &&
-            !Array.isArray(override.options)
-          ) {
-            entry.options = override.options;
-          } else if ('options' in override) {
-            delete entry.options;
-          }
-          log('[plugin] runtime preset override', {
-            preset: runtimePresetName,
-            agent: agentName,
-            model: entry.model as string,
-          });
-        }
-
-        // Reset agents from the previous preset that aren't in the new one.
-        // The stale model resolution above overwrites the reset values sent
-        // by preset-manager, so we re-apply them here from config-file
-        // baseline.
-        const prevPresetName = getPreviousRuntimePreset();
-        if (prevPresetName && config.presets?.[prevPresetName]) {
-          const prevPreset = config.presets[prevPresetName];
-          // Build resolved key set from new preset for correct comparison
-          // (handles alias keys like "explore" → "explorer")
-          const newPresetResolved = new Set(
-            Object.keys(runtimePreset).map((k) => AGENT_ALIASES[k] ?? k),
-          );
-          for (const agentName of Object.keys(prevPreset)) {
-            const resolvedName = AGENT_ALIASES[agentName] ?? agentName;
-            if (newPresetResolved.has(resolvedName)) continue; // new preset handles it
-            const entry = configAgent[resolvedName] as
-              | Record<string, unknown>
-              | undefined;
-            if (!entry) continue;
-            // Reset to config-file baseline. Use the previous preset's
-            // override to identify which fields to clear even when the
-            // baseline doesn't define them.
-            const baseline = config.agents?.[resolvedName];
-            const prevOverride = prevPreset[agentName] as
-              | AgentOverrideConfig
-              | undefined;
-            if (typeof baseline?.model === 'string') {
-              entry.model = baseline.model;
-            }
-            if (typeof baseline?.variant === 'string') {
-              entry.variant = baseline.variant;
-            } else if (prevOverride && 'variant' in prevOverride) {
-              delete entry.variant;
-            }
-            if (typeof baseline?.temperature === 'number') {
-              entry.temperature = baseline.temperature;
-            } else if (prevOverride && 'temperature' in prevOverride) {
-              delete entry.temperature;
-            }
-            if (
-              baseline?.options &&
-              typeof baseline.options === 'object' &&
-              !Array.isArray(baseline.options)
-            ) {
-              entry.options = baseline.options;
-            } else if (prevOverride && 'options' in prevOverride) {
-              delete entry.options;
-            }
-            log('[plugin] runtime preset reset from previous', {
-              previousPreset: prevPresetName,
-              agent: resolvedName,
-              model: entry.model as string,
-            });
-          }
-        }
-      }
-
-      const tuiAgentModels: Record<string, string> = {};
-      for (const agentDef of agentDefs) {
-        if (agentDef.name === 'councillor') continue;
-
-        const entry = configAgent[agentDef.name] as
-          | Record<string, unknown>
-          | undefined;
-        const resolvedModel =
-          typeof entry?.model === 'string'
-            ? entry.model
-            : runtimeChains[agentDef.name]?.[0]
-              ? runtimeChains[agentDef.name][0]
-              : typeof agentDef.config.model === 'string'
-                ? agentDef.config.model
-                : undefined;
-
-        tuiAgentModels[agentDef.name] = resolvedModel ?? 'default';
-      }
-      recordTuiAgentModels({ agentModels: tuiAgentModels });
-
-      // Merge MCP configs
-      const configMcp = opencodeConfig.mcp as
-        | Record<string, unknown>
-        | undefined;
-      if (!configMcp) {
-        opencodeConfig.mcp = { ...mcps };
-      } else {
-        Object.assign(configMcp, mcps);
-      }
-
-      // Get all MCP names from the merged config (built-in + custom)
-      const mergedMcpConfig = opencodeConfig.mcp as
-        | Record<string, unknown>
-        | undefined;
-      const allMcpNames = Object.keys(mergedMcpConfig ?? mcps);
-
-      // For each agent, create permission rules based on their mcps list
-      for (const [agentName, agentConfig] of Object.entries(agents)) {
-        const agentMcps = (agentConfig as { mcps?: string[] })?.mcps;
-        if (!agentMcps) continue;
-
-        // Get or create agent permission config
-        if (!configAgent[agentName]) {
-          configAgent[agentName] = { ...agentConfig };
-        }
-        const agentConfigEntry = configAgent[agentName] as Record<
-          string,
-          unknown
-        >;
-        const agentPermission = (agentConfigEntry.permission ?? {}) as Record<
-          string,
-          unknown
-        >;
-
-        // Parse mcps list with wildcard and exclusion support
-        const allowedMcps = parseList(agentMcps, allMcpNames);
-
-        // Create permission rules for each MCP
-        // MCP tools are named as <server>_<tool>, so we use <server>_*
-        for (const mcpName of allMcpNames) {
-          const sanitizedMcpName = mcpName.replace(/[^a-zA-Z0-9_-]/g, '_');
-          const permissionKey = `${sanitizedMcpName}_*`;
-          const action = allowedMcps.includes(mcpName) ? 'allow' : 'deny';
-
-          // Only set if not already defined by user
-          if (!(permissionKey in agentPermission)) {
-            agentPermission[permissionKey] = action;
-          }
-        }
-
-        // Update agent config with permissions
-        agentConfigEntry.permission = agentPermission;
-      }
-
-      // Register /auto-continue command so OpenCode recognizes it.
-      // Actual handling is done by command.execute.before hook below
-      // (no LLM round-trip — injected directly into output.parts).
-      const configCommand = opencodeConfig.command as
-        | Record<string, unknown>
-        | undefined;
-      if (!configCommand?.['auto-continue']) {
-        if (!opencodeConfig.command) {
-          opencodeConfig.command = {};
-        }
-        (opencodeConfig.command as Record<string, unknown>)['auto-continue'] = {
-          template: 'Call the auto_continue tool with enabled=true',
-          description:
-            'Enable auto-continuation — orchestrator keeps working through incomplete todos',
-        };
-      }
-
-      interviewManager.registerCommand(opencodeConfig);
-      presetManager.registerCommand(opencodeConfig);
-      subtaskCommandManager.registerCommand(opencodeConfig);
+      configureOpenCodeConfig({
+        opencodeConfig,
+        config,
+        agents,
+        agentDefs,
+        mcps,
+        runtimeChains,
+        recordTuiModels: recordTuiAgentModels,
+        registerCommands: [
+          (nextConfig) => interviewManager.registerCommand(nextConfig),
+          (nextConfig) => presetManager.registerCommand(nextConfig),
+          (nextConfig) => subtaskCommandManager.registerCommand(nextConfig),
+        ],
+        log,
+      });
     },
 
     event: async (input) => {

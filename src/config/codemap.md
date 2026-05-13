@@ -3,13 +3,16 @@
 ## Responsibility
 
 `src/config/` owns config schema, load/merge rules, preset composition, prompt
-lookup, MCP defaults, and runtime preset state shared across plugin re-inits.
+lookup, MCP defaults, config-hook composition helpers, and runtime preset state
+shared across plugin re-inits.
 
 ## Main entrypoints
 
 - `loadPluginConfig(directory, options?)` — runtime loader used by `src/index.ts`
 - `PluginConfigSchema` — authoritative schema for user/project config
 - `loadAgentPrompt(agentName, preset?)` — prompt file discovery for agents
+- `configureOpenCodeConfig()` — OpenCode config-hook composition used by
+  `src/index.ts`
 - `runtime-preset.ts` — process-local active/previous runtime preset tracking
 
 ## Load/merge pipeline (`loader.ts`)
@@ -44,6 +47,15 @@ lookup, MCP defaults, and runtime preset state shared across plugin re-inits.
   - `setActiveRuntimePresetWithPrevious()` / `getPreviousRuntimePreset()`
   - `rollbackRuntimePreset()` for failed switches
 
+## Config-hook composition
+
+- `plugin-config-hook.ts` applies the OpenCode config hook in one place:
+  default agent selection, plugin-agent shallow merge, startup model resolution,
+  runtime preset override/reset, TUI model snapshot recording, MCP merge and
+  permission synthesis, and slash command registration.
+- `model-resolution.ts` owns ordered model-array and fallback-chain helpers used
+  both by the config hook and by foreground runtime fallback setup.
+
 ## Schema surface (`schema.ts`)
 
 - agent overrides support:
@@ -74,5 +86,7 @@ lookup, MCP defaults, and runtime preset state shared across plugin re-inits.
 - `council-schema.ts` — council config schema + legacy normalization
 - `constants.ts` — agent names, default models, delegation/polling constants
 - `agent-mcps.ts` — MCP defaults and list parsing
+- `model-resolution.ts` — priority model arrays, fallback chains, TUI snapshots
+- `plugin-config-hook.ts` — OpenCode config hook composition helpers
 - `utils.ts` — override lookup and custom-agent discovery
 - `index.ts` — public re-export surface
