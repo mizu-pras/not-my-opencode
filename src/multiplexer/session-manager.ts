@@ -18,6 +18,7 @@ interface TrackedSession {
   directory: string;
   createdAt: number;
   lastSeenAt: number;
+  hasSeenBusy: boolean;
   missingSince?: number;
 }
 
@@ -45,6 +46,7 @@ type CloseReason = 'idle' | 'deleted' | 'missing' | 'timeout';
 
 const SESSION_TIMEOUT_MS = 10 * 60 * 1000;
 const SESSION_MISSING_GRACE_MS = POLL_INTERVAL_BACKGROUND_MS * 3;
+const SESSION_INITIAL_IDLE_GRACE_MS = 10_000;
 
 /**
  * Tracks child sessions and spawns/closes multiplexer panes for them.
@@ -181,6 +183,7 @@ export class MultiplexerSessionManager {
         directory,
         createdAt: now,
         lastSeenAt: now,
+        hasSeenBusy: false,
       });
 
       log('[multiplexer-session-manager] pane spawned', {
@@ -205,12 +208,25 @@ export class MultiplexerSessionManager {
     if (!sessionId) return;
 
     if (event.properties?.status?.type === 'idle') {
+      if (this.shouldIgnoreInitialIdle(sessionId)) {
+        return;
+      }
       await this.closeSession(sessionId, 'idle');
       return;
     }
 
     if (event.properties?.status?.type === 'busy') {
+      const tracked = this.sessions.get(sessionId);
+      if (tracked) {
+        tracked.hasSeenBusy = true;
+        tracked.lastSeenAt = Date.now();
+        tracked.missingSince = undefined;
+      }
       await this.respawnIfKnown(sessionId);
+      const respawned = this.sessions.get(sessionId);
+      if (respawned) {
+        respawned.hasSeenBusy = true;
+      }
     }
   }
 
@@ -270,6 +286,9 @@ export class MultiplexerSessionManager {
         if (status) {
           tracked.lastSeenAt = now;
           tracked.missingSince = undefined;
+          if (status.type === 'busy') {
+            tracked.hasSeenBusy = true;
+          }
         } else if (!tracked.missingSince) {
           tracked.missingSince = now;
         }
@@ -278,6 +297,14 @@ export class MultiplexerSessionManager {
           !!tracked.missingSince &&
           now - tracked.missingSince >= SESSION_MISSING_GRACE_MS;
         const isTimedOut = now - tracked.createdAt > SESSION_TIMEOUT_MS;
+
+        if (
+          isIdle &&
+          !tracked.hasSeenBusy &&
+          now - tracked.createdAt <= SESSION_INITIAL_IDLE_GRACE_MS
+        ) {
+          continue;
+        }
 
         if (isIdle || missingTooLong || isTimedOut) {
           sessionsToClose.push({
@@ -417,6 +444,7 @@ export class MultiplexerSessionManager {
         directory: known.directory,
         createdAt: now,
         lastSeenAt: now,
+        hasSeenBusy: true,
       });
 
       log('[multiplexer-session-manager] pane respawned on busy', {
@@ -435,6 +463,17 @@ export class MultiplexerSessionManager {
 
   private isTrackedOrSpawning(sessionId: string): boolean {
     return this.sessions.has(sessionId) || this.spawningSessions.has(sessionId);
+  }
+
+  private shouldIgnoreInitialIdle(sessionId: string): boolean {
+    const tracked = this.sessions.get(sessionId);
+    if (!tracked?.hasSeenBusy) {
+      return (
+        !!tracked &&
+        Date.now() - tracked.createdAt <= SESSION_INITIAL_IDLE_GRACE_MS
+      );
+    }
+    return false;
   }
 
   private updatePolling(): void {

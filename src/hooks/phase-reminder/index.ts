@@ -78,8 +78,19 @@ export function createPhaseReminderHook() {
         return;
       }
 
-      lastUserMessage.parts[textPartIndex].text =
-        `${originalText}\n\n---\n\n${PHASE_REMINDER}`;
+      const nextParts = lastUserMessage.parts.map((part, index) =>
+        index === textPartIndex
+          ? {
+              ...part,
+              text: `${originalText}\n\n---\n\n${PHASE_REMINDER}`,
+            }
+          : part,
+      );
+
+      messages[lastUserMessageIndex] = {
+        ...lastUserMessage,
+        parts: nextParts,
+      };
     },
   };
 }

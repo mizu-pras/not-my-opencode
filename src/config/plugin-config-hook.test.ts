@@ -283,4 +283,48 @@ describe('configureOpenCodeConfig', () => {
     });
     expect(register).toHaveBeenCalledTimes(1);
   });
+
+  test('runtime preset keeps partial updated agents selectable', () => {
+    setActiveRuntimePreset('opencode-go');
+    const { opencodeConfig } = configure({
+      opencodeConfig: {
+        agent: {
+          designer: {
+            model: 'stale/runtime-model',
+          },
+        },
+      },
+      config: {
+        presets: {
+          'opencode-go': {
+            designer: {
+              model: 'opencode-go/kimi-k2.6',
+              variant: 'medium',
+              skills: ['agent-browser'],
+              mcps: [],
+            },
+          },
+        },
+      } as PluginConfig,
+      agents: {
+        designer: sdkAgent('base/designer', {
+          description: 'UI/UX design, review, and implementation.',
+          mode: 'subagent',
+        } as Partial<SDKAgentConfig>),
+      },
+      agentDefs: [agentDef('designer')],
+    });
+
+    expect(
+      (opencodeConfig.agent as Record<string, Record<string, unknown>>)
+        .designer,
+    ).toEqual(
+      expect.objectContaining({
+        description: 'UI/UX design, review, and implementation.',
+        mode: 'subagent',
+        model: 'opencode-go/kimi-k2.6',
+        variant: 'medium',
+      }),
+    );
+  });
 });

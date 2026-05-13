@@ -23,7 +23,9 @@ reminder to the latest orchestrator user message before the next LLM request.
 3. Find the first text part.
 4. Skip if the part already contains `SLIM_INTERNAL_INITIATOR_MARKER` or
    `PHASE_REMINDER`.
-5. Append `\n\n---\n\n${PHASE_REMINDER}` to that text part.
+5. Replace the outbound message entry with cloned parts containing
+   `\n\n---\n\n${PHASE_REMINDER}`, avoiding mutation of the original persisted
+   message object.
 
 ## Integration
 

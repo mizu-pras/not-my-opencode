@@ -45,6 +45,8 @@
 
 - `onSessionStatus(...)`:
   - `idle` -> close the pane but keep the session known for possible reuse;
+    initial idle events before any busy status are ignored briefly to avoid
+    closing panes before a child session has started work;
   - `busy` -> respawn a pane if the session is known but currently not tracked.
 
 - `onSessionDeleted(...)`:

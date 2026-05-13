@@ -5,13 +5,12 @@ import { createPhaseReminderHook, PHASE_REMINDER } from './index';
 describe('createPhaseReminderHook', () => {
   test('appends reminder for orchestrator sessions', async () => {
     const hook = createPhaseReminderHook();
+    const originalMessage = {
+      info: { role: 'user', agent: 'orchestrator' },
+      parts: [{ type: 'text', text: 'hello' }],
+    };
     const output = {
-      messages: [
-        {
-          info: { role: 'user', agent: 'orchestrator' },
-          parts: [{ type: 'text', text: 'hello' }],
-        },
-      ],
+      messages: [originalMessage],
     };
 
     await hook['experimental.chat.messages.transform']({}, output);
@@ -19,6 +18,9 @@ describe('createPhaseReminderHook', () => {
     expect(output.messages[0].parts[0].text).toBe(
       `hello\n\n---\n\n${PHASE_REMINDER}`,
     );
+    expect(output.messages[0]).not.toBe(originalMessage);
+    expect(output.messages[0].parts).not.toBe(originalMessage.parts);
+    expect(originalMessage.parts[0].text).toBe('hello');
   });
 
   test('skips non-orchestrator sessions', async () => {
